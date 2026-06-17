@@ -19,6 +19,7 @@ import PYQPage from './pages/PYQPage';
 import MasterQuestionUploader from './pages/MasterQues';
 import FullMockTestGenerator from './pages/FullMockTestGenerator';
 import SystemHealth from './pages/SystemHealth';
+import QuestionReviewer from './pages/QuestionReviewer';
 
 const queryClient = new QueryClient();
 
@@ -154,6 +155,13 @@ const AppRoutes = () => {
         <ProtectedRoute>
           <Layout>
             <NotFound />
+          </Layout>
+        </ProtectedRoute>
+      } />
+      <Route path="/question-reviewer" element={
+        <ProtectedRoute>
+          <Layout>
+            <QuestionReviewer />
           </Layout>
         </ProtectedRoute>
       } />

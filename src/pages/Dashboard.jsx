@@ -80,53 +80,21 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
-
-      const fetchAndCount = async (url, classLevel) => {
-        try {
-          const token = localStorage.getItem('token');
-          const res = await fetch(url, {
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json'
-            }
-          });
-
-          if (!res.ok) {
-            console.error(`Failed to fetch ${url}: ${res.statusText}`);
-            return 0;
-          }
-
-          const data = await res.json();
-          return Array.isArray(data)
-            ? data.filter(item => item.studentClass === classLevel).length
-            : 0;
-        } catch (error) {
-          console.error(`Error processing data from ${url}`, error);
-          return 0;
-        }
-      };
-
-      const [
-        class10Subjects, class12Subjects,
-        class10Chapters, class12Chapters,
-        class10Questions, class12Questions
-      ] = await Promise.all([
-        fetchAndCount(`${API_BASE_URL}/utility/subject`, 10),
-        fetchAndCount(`${API_BASE_URL}/utility/subject`, 12),
-        fetchAndCount(`${API_BASE_URL}/utility/chapter`, 10),
-        fetchAndCount(`${API_BASE_URL}/utility/chapter`, 12),
-        fetchAndCount(`${API_BASE_URL}/utility/question`, 10),
-        fetchAndCount(`${API_BASE_URL}/utility/question`, 12),
-      ]);
-
-      setCounts({
-        10: { subjects: class10Subjects, chapters: class10Chapters, questions: class10Questions },
-        12: { subjects: class12Subjects, chapters: class12Chapters, questions: class12Questions },
-      });
-
-      setLoading(false);
+      const token = localStorage.getItem('token');
+      try {
+        // Single call returns both classes at once
+        const res = await fetch(`${API_BASE_URL}/utility/counts`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) throw new Error('Failed to fetch counts');
+        const data = await res.json(); 
+        setCounts(data);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
     };
-
     fetchData();
   }, []);
 

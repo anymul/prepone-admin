@@ -877,7 +877,6 @@
 //     </div>
 //   );
 // }
-
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -921,7 +920,9 @@ import {
 } from 'lucide-react';
 import Papa from 'papaparse';
 
+
 const optionMap = { A: 0, B: 1, C: 2, D: 3 };
+
 
 const LANGUAGE_REQUIREMENTS = {
   BOTH: 'both',
@@ -929,6 +930,7 @@ const LANGUAGE_REQUIREMENTS = {
   HI_ONLY: 'hi_only',
   EITHER: 'either'
 };
+
 
 function TabPanel({ children, value, index }) {
   return (
@@ -938,11 +940,13 @@ function TabPanel({ children, value, index }) {
   );
 }
 
+
 export default function MasterQuestionUploader() {
   const navigate = useNavigate();
-  const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api/v1/utility";
+  const API_BASE_URL = "http://localhost:3000/api/v1/utility";
   const SUBJECT_API_URL = `${API_BASE_URL}/subject`;
   const QUESTION_API_URL = `${API_BASE_URL}/question`;
+
 
   const [selectedClass, setSelectedClass] = useState('');
   const [languageMode, setLanguageMode] = useState(LANGUAGE_REQUIREMENTS.BOTH);
@@ -952,7 +956,18 @@ export default function MasterQuestionUploader() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadComplete, setUploadComplete] = useState(false);
   const [errors, setErrors] = useState([]);
-  const [activeTab, setActiveTab] = useState(0); // 0=setup, 1=preview, 2=upload
+  const [activeTab, setActiveTab] = useState(0);
+
+
+  // GET AUTH TOKEN FROM LOCALSTORAGE
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem('token');
+    return {
+      'Content-Type': 'application/json',
+      ...(token && { 'Authorization': `Bearer ${token}` })
+    };
+  };
+
 
   // Validation function
   const validateQuestion = (question) => {
@@ -997,6 +1012,7 @@ export default function MasterQuestionUploader() {
 
     return errors;
   };
+
 
   // Handle CSV file selection
   const handleCsvFileSelect = (event) => {
@@ -1146,6 +1162,7 @@ export default function MasterQuestionUploader() {
     });
   };
 
+
   const groupQuestionsBySubjectAndChapter = (questions) => {
     const grouped = {};
     questions.forEach(question => {
@@ -1161,10 +1178,19 @@ export default function MasterQuestionUploader() {
     return grouped;
   };
 
+
   const uploadQuestionsForChapter = async (subjectName, chapterName, questions, progressIndex) => {
     try {
-      const subjectsRes = await fetch(`${SUBJECT_API_URL}/class/${selectedClass}`);
-      if (!subjectsRes.ok) throw new Error('Failed to fetch subjects');
+      const subjectsRes = await fetch(`${SUBJECT_API_URL}/class/${selectedClass}`, {
+        headers: getAuthHeaders()
+      });
+      
+      if (!subjectsRes.ok) {
+        if (subjectsRes.status === 401) {
+          throw new Error('Unauthorized: Please login again');
+        }
+        throw new Error('Failed to fetch subjects');
+      }
 
       const subjects = await subjectsRes.json();
       let subject = subjects.find(s => s.name.toLowerCase() === subjectName.toLowerCase());
@@ -1172,7 +1198,7 @@ export default function MasterQuestionUploader() {
       if (!subject) {
         const createSubjectRes = await fetch(`${SUBJECT_API_URL}`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders(),
           body: JSON.stringify({
             name: subjectName,
             studentClass: parseInt(selectedClass),
@@ -1183,7 +1209,9 @@ export default function MasterQuestionUploader() {
         subject = await createSubjectRes.json();
       }
 
-      const chaptersRes = await fetch(`${SUBJECT_API_URL}/${subject._id}/chapters`);
+      const chaptersRes = await fetch(`${SUBJECT_API_URL}/${subject._id}/chapters`, {
+        headers: getAuthHeaders()
+      });
       if (!chaptersRes.ok) throw new Error('Failed to fetch chapters');
 
       const chapters = await chaptersRes.json();
@@ -1193,7 +1221,7 @@ export default function MasterQuestionUploader() {
         const maxOrder = chapters.length > 0 ? Math.max(...chapters.map(c => c.order || 0)) : 0;
         const createChapterRes = await fetch(`${SUBJECT_API_URL}/${subject._id}/chapters`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders(),
           body: JSON.stringify({
             name: chapterName,
             studentClass: parseInt(selectedClass),
@@ -1225,7 +1253,7 @@ export default function MasterQuestionUploader() {
 
         const uploadRes = await fetch(`${QUESTION_API_URL}/bulkpost`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders(),
           body: JSON.stringify({
             subjectId: subject._id,
             chapterId: chapter._id,
@@ -1246,6 +1274,7 @@ export default function MasterQuestionUploader() {
       return { success: false, subject: subjectName, chapter: chapterName, error: error.message };
     }
   };
+
 
   const handleMasterUpload = async () => {
     if (!selectedClass || !parsedData) {
@@ -1280,7 +1309,9 @@ export default function MasterQuestionUploader() {
 
         setUploadProgress(prev => {
           const np = [...prev];
-          np[progressIndex].status = 'uploading';
+          if (np[progressIndex]) {
+            np[progressIndex].status = 'uploading';
+          }
           return np;
         });
 
@@ -1288,12 +1319,14 @@ export default function MasterQuestionUploader() {
 
         setUploadProgress(prev => {
           const np = [...prev];
-          if (result.success) {
-            np[progressIndex].status = 'success';
-            np[progressIndex].uploadedCount = questions.length;
-          } else {
-            np[progressIndex].status = 'error';
-            np[progressIndex].error = result.error;
+          if (np[progressIndex]) {
+            if (result.success) {
+              np[progressIndex].status = 'success';
+              np[progressIndex].uploadedCount = questions.length;
+            } else {
+              np[progressIndex].status = 'error';
+              np[progressIndex].error = result.error;
+            }
           }
           return np;
         });
@@ -1305,6 +1338,7 @@ export default function MasterQuestionUploader() {
     setIsUploading(false);
     setUploadComplete(true);
   };
+
 
   const handleDownloadTemplate = () => {
     let csvData;
@@ -1337,6 +1371,7 @@ export default function MasterQuestionUploader() {
     link.click();
   };
 
+
   const getStatistics = () => {
     if (!parsedData) return { subjects: 0, chapters: 0, questions: 0, totalMarks: 0 };
 
@@ -1356,6 +1391,7 @@ export default function MasterQuestionUploader() {
     return { subjects, chapters: totalChapters, questions: totalQuestions, totalMarks };
   };
 
+
   const getLangModeDisplay = () => {
     switch (languageMode) {
       case LANGUAGE_REQUIREMENTS.BOTH: return { text: "Both EN & HI Required", color: "primary" };
@@ -1366,8 +1402,10 @@ export default function MasterQuestionUploader() {
     }
   };
 
+
   const stats = getStatistics();
   const langDisplay = getLangModeDisplay();
+
 
   return (
     <Box sx={{ maxWidth: '1400px', mx: 'auto', p: { xs: 2, md: 3 } }}>

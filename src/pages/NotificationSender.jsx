@@ -333,11 +333,13 @@ export default function NotificationSender() {
                                     <MenuItem value="all">
                                         All Users ({stats.usersWithTokens.toLocaleString()} devices)
                                     </MenuItem>
-                                    {stats.usersByClass.map((item) => (
-                                        <MenuItem key={item._id} value={item._id.toString()}>
-                                            Class {item._id} ({item.count.toLocaleString()} devices)
-                                        </MenuItem>
-                                    ))}
+                                    {stats.usersByClass
+                                        .filter(item => item._id != null) 
+                                        .map((item) => (
+                                            <MenuItem key={item._id} value={item._id.toString()}>
+                                                Class {item._id} ({item.count.toLocaleString()} devices)
+                                            </MenuItem>
+                                        ))}
                                 </Select>
                             </FormControl>
 
