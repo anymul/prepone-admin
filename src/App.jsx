@@ -21,6 +21,7 @@ const Library = lazy(() => import('./pages/Library'));
 const Flashcards = lazy(() => import('./pages/Flashcards'));
 const KnowledgeGraph = lazy(() => import('./pages/KnowledgeGraph'));
 const NotificationSender = lazy(() => import('./pages/NotificationSender'));
+const AutomaticNudges = lazy(() => import('./pages/AutomaticNudges'));
 const Students = lazy(() => import('./pages/Students'));
 const Workshops = lazy(() => import('./pages/Workshops'));
 const ScheduledJobs = lazy(() => import('./pages/ScheduledJobs'));
@@ -106,6 +107,7 @@ const AppRoutes = () => (
     <Route path="/pyqs" element={<Navigate to="/library" replace />} />
     <Route path="/revision-notes" element={<Navigate to="/library?tab=notes" replace />} />
     <Route path="/notifications" element={page(<NotificationSender />)} />
+    <Route path="/automatic-nudges" element={page(<AutomaticNudges />)} />
     <Route path="/students" element={page(<Students />)} />
     <Route path="/workshops" element={page(<Workshops />)} />
     <Route path="/review" element={page(<Review />)} />

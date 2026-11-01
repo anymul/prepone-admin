@@ -93,3 +93,57 @@ export function installHttpGuards() {
     }
   );
 }
+
+export const api = {
+  async get(path, opts = {}) {
+    const res = await fetch(`${API_BASE_URL}${path}`, {
+      method: 'GET',
+      headers: authHeaders(opts.headers),
+      ...opts,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || `GET ${path} failed with status ${res.status}`);
+    }
+    return res.json();
+  },
+  async post(path, body, opts = {}) {
+    const res = await fetch(`${API_BASE_URL}${path}`, {
+      method: 'POST',
+      headers: authHeaders(opts.headers),
+      body: body ? JSON.stringify(body) : undefined,
+      ...opts,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || `POST ${path} failed with status ${res.status}`);
+    }
+    return res.json();
+  },
+  async patch(path, body, opts = {}) {
+    const res = await fetch(`${API_BASE_URL}${path}`, {
+      method: 'PATCH',
+      headers: authHeaders(opts.headers),
+      body: body ? JSON.stringify(body) : undefined,
+      ...opts,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || `PATCH ${path} failed with status ${res.status}`);
+    }
+    return res.json();
+  },
+  async delete(path, opts = {}) {
+    const res = await fetch(`${API_BASE_URL}${path}`, {
+      method: 'DELETE',
+      headers: authHeaders(opts.headers),
+      ...opts,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || `DELETE ${path} failed with status ${res.status}`);
+    }
+    return res.json();
+  },
+};
+
