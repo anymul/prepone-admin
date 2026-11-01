@@ -3,7 +3,10 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import { ThemeProvider, CssBaseline } from '@mui/material';
 import theme from './theme';
+import { installHttpGuards } from './lib/api';
 import './index.css';
+
+installHttpGuards();
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

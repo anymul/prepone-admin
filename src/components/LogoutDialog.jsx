@@ -11,25 +11,19 @@ import {
   Typography
 } from '@mui/material';
 import { LogOut, AlertTriangle } from 'lucide-react';
+import { useAuth } from '@/lib/auth-context';
 
 export function LogoutDialog({ open, onClose }) {
   const navigate = useNavigate();
+  const { logout } = useAuth();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const handleLogout = async () => {
     setIsLoggingOut(true);
 
     try {
-      // Clear all auth data
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      localStorage.removeItem('userRole');
-      
-      // Optional: Call logout API endpoint if you have one
-      // await fetch(`${API_BASE_URL}/auth/logout`, {
-      //   method: 'POST',
-      //   headers: { 'Authorization': `Bearer ${token}` }
-      // });
+      // Clears storage AND the in-memory auth state, so the back button cannot reach protected pages.
+      logout();
 
       // Small delay for UX (optional)
       await new Promise(resolve => setTimeout(resolve, 500));

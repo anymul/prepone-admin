@@ -5,22 +5,20 @@ import {
     Drawer, Tabs, Tab, Divider, Stack, Grid, Paper,
     ToggleButtonGroup, ToggleButton, Collapse, Alert, Badge,
     Dialog, DialogTitle, DialogContent, DialogActions,
-    MenuItem, Select, FormControl, InputLabel, Accordion,
-    AccordionSummary, AccordionDetails,
+    Radio, RadioGroup, FormControlLabel, Checkbox
 } from "@mui/material";
 import {
     ThumbsUp, ThumbsDown, Flag, ChevronLeft, ChevronRight,
-    CheckCircle2, XCircle, Clock, SkipForward, ClipboardCheck,
+    CheckCircle2, XCircle, Clock, SkipForward,
     BookOpen, Layers, ChevronDown, ChevronUp, SplitSquareHorizontal,
     Info, Download, RotateCcw, List, X, Sparkles, AlertTriangle,
-    ShieldCheck, Languages, Copy, Zap, BarChart3, Bot,
-    CheckCheck, Hash, FileText, PenLine, RefreshCcw, Eye,
+    ShieldCheck, Zap, BarChart3, Bot, Edit2, Save, Wand2, Search // Added new icons
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "../lib/auth-context";
 import LatexRenderer from "../components/LatexRenderer";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api/v1";
+const API_BASE_URL = import.meta.env.VITE_API_URL || "/api/v1";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -31,6 +29,7 @@ const authHeaders = () => ({
 
 const DIFFICULTY_COLOR = { easy: "success", medium: "warning", hard: "error" };
 const OPTION_LABELS = ["A", "B", "C", "D"];
+const indexMap = ['A', 'B', 'C', 'D'];
 
 const QUICK_REMARKS = [
     "Incorrect answer",
@@ -38,7 +37,7 @@ const QUICK_REMARKS = [
     "LaTeX formatting broken",
     "Hindi translation missing",
     "Hindi translation mismatch",
-    "Explanation insufficient",
+    "Model answer insufficient",
     "Ambiguous stem",
     "Wrong chapter",
     "Poor quality",
@@ -46,7 +45,6 @@ const QUICK_REMARKS = [
     "Good question ✓",
 ];
 
-// Issue tag → severity mapping
 const ISSUE_SEVERITY = {
     "incorrect-answer": "error",
     "wrong-chapter": "error",
@@ -63,6 +61,8 @@ const VERDICT_LABEL = { approve: "Approved by AI", reject: "Rejected by AI", nee
 
 const sessionKey = (cls, subjectId, chapterId) =>
     `auditSession_${cls}_${subjectId}_${chapterId}`;
+const mockTestSessionKey = (testId) =>
+    `auditSession_mocktest_${testId}`;
 const saveSession = (key, data) => {
     try { localStorage.setItem(key, JSON.stringify(data)); } catch (_) { }
 };
@@ -81,8 +81,6 @@ function SetupWizard({ onStart }) {
     const [selectedChapter, setSelectedChapter] = useState(null);
     const [loadingSubjects, setLoadingSubjects] = useState(false);
     const [loadingChapters, setLoadingChapters] = useState(false);
-
-    const BATCHSIZE = 10;
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
@@ -259,9 +257,276 @@ function SetupWizard({ onStart }) {
     );
 }
 
+// ─── Mock Test Review Selector ────────────────────────────────────────────────
+
+function MockTestReviewSelector({ onStart }) {
+    const [selectedClass, setSelectedClass] = useState("all");
+    const [selectedBoard, setSelectedBoard] = useState("all");
+    const [searchQuery, setSearchQuery] = useState("");
+    const [mockTests, setMockTests] = useState([]);
+    const [loading, setLoading] = useState(false);
+
+    const fetchMockTests = useCallback(async () => {
+        setLoading(true);
+        try {
+            const params = new URLSearchParams();
+            if (selectedClass !== "all") params.set("classId", selectedClass);
+            if (selectedBoard !== "all") params.set("board", selectedBoard);
+            if (searchQuery.trim()) params.set("search", searchQuery.trim());
+
+            const res = await fetch(`${API_BASE_URL}/tests/admin/list?${params.toString()}`, {
+                headers: authHeaders(),
+            });
+            if (!res.ok) throw new Error("Failed to fetch mock tests");
+            const data = await res.json();
+            setMockTests(Array.isArray(data) ? data : []);
+        } catch (err) {
+            console.error("Error fetching mock tests:", err);
+            toast.error("Failed to load mock tests");
+            setMockTests([]);
+        } finally {
+            setLoading(false);
+        }
+    }, [selectedClass, selectedBoard, searchQuery]);
+
+    useEffect(() => {
+        fetchMockTests();
+    }, [fetchMockTests]);
+
+    const handleSelectTest = (test) => {
+        const params = new URLSearchParams({
+            mode: "mocktest",
+            testId: test._id,
+            title: test.title,
+        });
+        window.history.replaceState({}, "", `?${params.toString()}`);
+        onStart({
+            type: "mocktest",
+            testId: test._id,
+            mockTest: test,
+        });
+    };
+
+    return (
+        <Box sx={{ maxWidth: 840, mx: "auto", py: 2 }}>
+            <Box mb={3}>
+                <Typography variant="h5" fontWeight={700} mb={0.5}>
+                    Select Mock Test to Review
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                    Review, audit, and fix questions specifically curated in mock tests. Changes update directly in the question database.
+                </Typography>
+            </Box>
+
+            {/* Filter Bar */}
+            <Paper variant="outlined" sx={{ p: 2, mb: 3, borderRadius: 2 }}>
+                <Grid container spacing={2} alignItems="center">
+                    <Grid item xs={12} sm={5}>
+                        <TextField
+                            size="small"
+                            fullWidth
+                            placeholder="Search mock tests by title..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            InputProps={{
+                                startAdornment: <Search size={16} style={{ marginRight: 8, opacity: 0.5 }} />,
+                            }}
+                        />
+                    </Grid>
+                    <Grid item xs={6} sm={3}>
+                        <ToggleButtonGroup
+                            size="small"
+                            exclusive
+                            value={selectedClass}
+                            onChange={(_, v) => v !== null && setSelectedClass(v)}
+                            fullWidth
+                        >
+                            <ToggleButton value="all">All Classes</ToggleButton>
+                            <ToggleButton value="10">Class 10</ToggleButton>
+                            <ToggleButton value="12">Class 12</ToggleButton>
+                        </ToggleButtonGroup>
+                    </Grid>
+                    <Grid item xs={6} sm={2.5}>
+                        <ToggleButtonGroup
+                            size="small"
+                            exclusive
+                            value={selectedBoard}
+                            onChange={(_, v) => v !== null && setSelectedBoard(v)}
+                            fullWidth
+                        >
+                            <ToggleButton value="all">All</ToggleButton>
+                            <ToggleButton value="BSEB">BSEB</ToggleButton>
+                            <ToggleButton value="CBSE">CBSE</ToggleButton>
+                        </ToggleButtonGroup>
+                    </Grid>
+                    <Grid item xs={12} sm={1.5} sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                        <Button
+                            variant="outlined"
+                            size="small"
+                            startIcon={<RotateCcw size={14} />}
+                            onClick={fetchMockTests}
+                            disabled={loading}
+                            fullWidth
+                        >
+                            Refresh
+                        </Button>
+                    </Grid>
+                </Grid>
+            </Paper>
+
+            {/* Mock Tests List */}
+            {loading ? (
+                <Box sx={{ p: 4, textAlign: "center" }}>
+                    <CircularProgress size={32} />
+                    <Typography mt={2} color="text.secondary" variant="body2">Loading mock tests…</Typography>
+                </Box>
+            ) : mockTests.length === 0 ? (
+                <Paper variant="outlined" sx={{ p: 5, textAlign: "center", borderRadius: 2 }}>
+                    <Typography variant="body1" fontWeight={600} color="text.secondary">
+                        No mock tests found matching your filters.
+                    </Typography>
+                    <Typography variant="body2" color="text.disabled" mt={0.5}>
+                        Try adjusting class, board, or search query.
+                    </Typography>
+                </Paper>
+            ) : (
+                <Stack spacing={2}>
+                    {mockTests.map((test) => (
+                        <Card
+                            key={test._id}
+                            variant="outlined"
+                            onClick={() => handleSelectTest(test)}
+                            sx={{
+                                p: 2.5,
+                                cursor: "pointer",
+                                transition: "all 0.18s ease-in-out",
+                                "&:hover": { borderColor: "primary.main", boxShadow: 2 },
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: 1.5,
+                            }}
+                        >
+                            <Stack direction="row" alignItems="flex-start" justifyContent="space-between" flexWrap="wrap" gap={1}>
+                                <Box sx={{ flex: 1, minWidth: 240 }}>
+                                    <Typography variant="subtitle1" fontWeight={700} sx={{ lineHeight: 1.3 }}>
+                                        {test.title}
+                                    </Typography>
+                                    {test.description && (
+                                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontSize: 13 }}>
+                                            {test.description}
+                                        </Typography>
+                                    )}
+                                </Box>
+                                <Button
+                                    variant="contained"
+                                    size="small"
+                                    startIcon={<ShieldCheck size={16} />}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleSelectTest(test);
+                                    }}
+                                    sx={{ fontWeight: 600, textTransform: "none", flexShrink: 0 }}
+                                >
+                                    Review Questions
+                                </Button>
+                            </Stack>
+
+                            <Stack direction="row" spacing={1} flexWrap="wrap" gap={0.8} alignItems="center">
+                                <Chip label={`Class ${test.studentClass}`} size="small" />
+                                <Chip label={test.board || "BSEB"} size="small" variant="outlined" />
+                                <Chip
+                                    icon={<List size={13} />}
+                                    label={`${test.questionCount || 0} Questions`}
+                                    size="small"
+                                    color="primary"
+                                    variant="outlined"
+                                />
+                                {test.durationInMinutes && (
+                                    <Chip
+                                        icon={<Clock size={13} />}
+                                        label={`${test.durationInMinutes} mins`}
+                                        size="small"
+                                        variant="outlined"
+                                    />
+                                )}
+                                {test.totalMarks && (
+                                    <Chip label={`${test.totalMarks} Marks`} size="small" variant="outlined" />
+                                )}
+                                {test.status && (
+                                    <Chip
+                                        label={test.status.toUpperCase()}
+                                        size="small"
+                                        color={test.status === "active" || test.status === "live" ? "success" : "default"}
+                                        variant={test.status === "active" || test.status === "live" ? "filled" : "outlined"}
+                                        sx={{ fontSize: 10, height: 20 }}
+                                    />
+                                )}
+                                {test.isPYQ && (
+                                    <Chip label="PYQ" size="small" color="secondary" variant="outlined" sx={{ fontSize: 10, height: 20 }} />
+                                )}
+                            </Stack>
+
+                            {test.subjects && test.subjects.length > 0 && (
+                                <Stack direction="row" spacing={0.5} flexWrap="wrap" gap={0.5}>
+                                    <Typography variant="caption" color="text.secondary" sx={{ alignSelf: "center", mr: 0.5 }}>
+                                        Subjects:
+                                    </Typography>
+                                    {test.subjects.map((sub, idx) => (
+                                        <Chip
+                                            key={idx}
+                                            label={typeof sub === "object" ? sub.name : sub}
+                                            size="small"
+                                            sx={{ fontSize: 11, height: 20, bgcolor: "action.hover" }}
+                                        />
+                                    ))}
+                                </Stack>
+                            )}
+                        </Card>
+                    ))}
+                </Stack>
+            )}
+        </Box>
+    );
+}
+
+// ─── Setup Hub with Tabs ──────────────────────────────────────────────────────
+
+function AuditSetupHub({ onStartSubjectChapter, onStartMockTest, initialTab = 0 }) {
+    const [tab, setTab] = useState(initialTab);
+
+    return (
+        <Box sx={{ maxWidth: 840, mx: "auto", py: 4 }}>
+            <Stack direction="row" alignItems="center" spacing={1.5} mb={1}>
+                <ShieldCheck size={26} />
+                <Typography variant="h5" fontWeight={800}>Question Quality Audit &amp; Review</Typography>
+            </Stack>
+            <Typography variant="body2" color="text.secondary" mb={3}>
+                Human review + AI verification + Live Database Editing for question quality.
+            </Typography>
+
+            <Tabs
+                value={tab}
+                onChange={(_, v) => setTab(v)}
+                sx={{
+                    borderBottom: 1,
+                    borderColor: "divider",
+                    mb: 3,
+                    "& .MuiTab-root": { textTransform: "none", fontWeight: 700, fontSize: 15, py: 1.5 }
+                }}
+            >
+                <Tab icon={<BookOpen size={18} />} iconPosition="start" label="Subject & Chapter Audit" />
+                <Tab icon={<Layers size={18} />} iconPosition="start" label="Mock Test Review" />
+            </Tabs>
+
+            {tab === 0 && <SetupWizard onStart={onStartSubjectChapter} />}
+            {tab === 1 && <MockTestReviewSelector onStart={onStartMockTest} />}
+        </Box>
+    );
+}
+
 // ─── Stats Bar ────────────────────────────────────────────────────────────────
 
-function StatsBar({ stats, autoVerifyStatus, onAutoVerify, autoVerifying }) {
+function StatsBar({ stats, autoVerifyStatus, onAutoVerify, autoVerifying, onOpenBatchFix, batchFixing, batchProgress, totalQuestions }) {
     return (
         <Stack direction="row" spacing={1.5} flexWrap="wrap" mb={2} alignItems="center">
             {[
@@ -283,10 +548,20 @@ function StatsBar({ stats, autoVerifyStatus, onAutoVerify, autoVerifying }) {
                 size="small" variant="outlined"
                 startIcon={autoVerifying ? <CircularProgress size={13} /> : <Sparkles size={14} />}
                 onClick={onAutoVerify}
-                disabled={autoVerifying}
+                disabled={autoVerifying || batchFixing}
                 color="primary"
             >
                 {autoVerifying ? `Verifying…` : "Auto Verify All"}
+            </Button>
+            <Button
+                size="small" variant="contained"
+                startIcon={batchFixing ? <CircularProgress size={13} color="inherit" /> : <Wand2 size={14} />}
+                onClick={onOpenBatchFix}
+                disabled={autoVerifying || totalQuestions === 0}
+                color="secondary"
+                sx={{ ml: 1 }}
+            >
+                {batchFixing ? `Auto-Fixing (${batchProgress.current}/${batchProgress.total})` : "Auto-Fix Chapter (AI)"}
             </Button>
         </Stack>
     );
@@ -329,20 +604,34 @@ function AIVerdictBanner({ aiResult }) {
     );
 }
 
-// ─── Question Card ────────────────────────────────────────────────────────────
+// ─── Question Card (View & Edit Modes) ────────────────────────────────────────
 
-function QuestionCard({ question, index, total, lang, onLangChange, flagged, onFlag, splitView, aiResult }) {
-    const [explanationOpen, setExplanationOpen] = useState(true);
-    const [issuesOpen, setIssuesOpen] = useState(true);
+function QuestionCard({
+    question, index, total, lang, onLangChange, flagged, onFlag, splitView, aiResult,
+    isEditing, setIsEditing, editForm, setEditForm, onSaveEdit, isSaving,
+    onAIFix, isFixingLatex
+}) {
+    const [modelAnswerOpen, setModelAnswerOpen] = useState(true);
+
     if (!question) return null;
 
+    // View Mode Constants
     const qText = question.questionText?.[lang] || question.questionText?.en || "";
-    const explanation = question.explanation?.[lang] || question.explanation?.en || "";
+    const getModelAnswer = (q, l) => {
+        if (!q) return "";
+        const ma = (q.modelAnswer !== undefined && q.modelAnswer !== null && q.modelAnswer !== "")
+            ? q.modelAnswer
+            : q.explanation;
+        if (!ma) return "";
+        if (typeof ma === 'string') return ma;
+        return ma[l] || ma.en || ma.hi || "";
+    };
+    const modelAnswer = getModelAnswer(question, lang);
     const renderOptionText = (opt) => opt?.[lang] || opt?.en || "";
 
     return (
-        <Card elevation={0} sx={{ border: "1px solid", borderColor: "divider", height: "100%" }}>
-            <CardContent sx={{ p: 3 }}>
+        <Card elevation={0} sx={{ border: "1px solid", borderColor: "divider", height: "100%", display: "flex", flexDirection: "column" }}>
+            <CardContent sx={{ p: 3, flex: 1, overflowY: "auto" }}>
                 {/* Header row */}
                 <Stack direction="row" alignItems="center" justifyContent="space-between" mb={2} flexWrap="wrap" gap={1}>
                     <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap" gap={0.5}>
@@ -350,12 +639,11 @@ function QuestionCard({ question, index, total, lang, onLangChange, flagged, onF
                             {index + 1} / {total}
                         </Typography>
                         <Chip label={`Class ${question.studentClass || "N/A"}`} size="small" />
-                        <Chip label={question.subjectId?.name || "Subject"} size="small" variant="outlined" />
-                        <Chip label={question.chapterId?.name || "Chapter"} size="small" variant="outlined" />
+                        <Chip label={question.subjectName || question.subjectId?.name || "Subject"} size="small" variant="outlined" />
+                        <Chip label={question.chapterName || question.chapterId?.name || "Chapter"} size="small" variant="outlined" />
                         <Chip label={question.difficulty || "medium"} size="small"
                             color={DIFFICULTY_COLOR[question.difficulty || "medium"]} />
-                        <Chip label={`${question.marks || 1}m`} size="small" variant="outlined" />
-                        {aiResult?.verdict && (
+                        {aiResult?.verdict && !isEditing && (
                             <Chip
                                 icon={<Bot size={11} />}
                                 label={aiResult.verdict.replace("_", " ")}
@@ -365,111 +653,289 @@ function QuestionCard({ question, index, total, lang, onLangChange, flagged, onF
                             />
                         )}
                     </Stack>
+
                     <Stack direction="row" spacing={0.5}>
-                        <Tooltip title="Toggle split EN/HI view">
-                            <IconButton size="small" onClick={() => onLangChange("split")} color={splitView ? "primary" : "default"}>
-                                <SplitSquareHorizontal size={16} />
-                            </IconButton>
-                        </Tooltip>
-                        <Tooltip title={flagged ? "Remove flag" : "Flag for re-check"}>
-                            <IconButton size="small" onClick={onFlag} color={flagged ? "warning" : "default"}>
-                                <Flag size={16} />
-                            </IconButton>
-                        </Tooltip>
+                        {!isEditing && (
+                            <Tooltip title="Toggle split EN/HI view">
+                                <IconButton size="small" onClick={() => onLangChange("split")} color={splitView ? "primary" : "default"}>
+                                    <SplitSquareHorizontal size={16} />
+                                </IconButton>
+                            </Tooltip>
+                        )}
+                        {!isEditing && (
+                            <Tooltip title={flagged ? "Remove flag" : "Flag for re-check"}>
+                                <IconButton size="small" onClick={onFlag} color={flagged ? "warning" : "default"}>
+                                    <Flag size={16} />
+                                </IconButton>
+                            </Tooltip>
+                        )}
+                        <Button
+                            variant={isEditing ? "contained" : "outlined"}
+                            color={isEditing ? "primary" : "inherit"}
+                            size="small"
+                            startIcon={isEditing ? <X size={15} /> : <Edit2 size={15} />}
+                            onClick={() => setIsEditing(!isEditing)}
+                            sx={{ ml: 1, textTransform: "none" }}
+                        >
+                            {isEditing ? "Cancel Edit" : "Edit"}
+                        </Button>
                     </Stack>
                 </Stack>
 
                 <LinearProgress variant="determinate" value={((index + 1) / total) * 100}
                     sx={{ mb: 2, borderRadius: 8, height: 4 }} />
 
-                {/* AI Verdict Banner */}
-                <AIVerdictBanner aiResult={aiResult} />
+                {!isEditing && <AIVerdictBanner aiResult={aiResult} />}
 
-                {/* Language toggle */}
-                {!splitView && (
-                    <ToggleButtonGroup size="small" exclusive value={lang}
-                        onChange={(_, v) => v && onLangChange(v)} sx={{ mb: 2 }}>
-                        <ToggleButton value="en">EN</ToggleButton>
-                        <ToggleButton value="hi">हि</ToggleButton>
-                    </ToggleButtonGroup>
-                )}
+                {/* ────────────────────────────────────────────────────────────────
+                    EDIT MODE
+                    ──────────────────────────────────────────────────────────────── */}
+                {isEditing && editForm ? (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
 
-                {/* Question text */}
-                {splitView ? (
-                    <Grid container spacing={2} mb={3}>
-                        <Grid item xs={6}>
-                            <Typography variant="caption" color="text.secondary" mb={0.5} display="block">English</Typography>
-                            <Typography variant="body1" fontWeight={600} sx={{ lineHeight: 1.7 }} component="div">
-                                <LatexRenderer text={question.questionText?.en || ""} />
-                            </Typography>
-                        </Grid>
-                        <Grid item xs={6}>
-                            <Typography variant="caption" color="text.secondary" mb={0.5} display="block">हिन्दी</Typography>
-                            <Typography variant="body1" fontWeight={600} sx={{ lineHeight: 1.7 }} component="div">
-                                <LatexRenderer text={question.questionText?.hi || ""} />
-                            </Typography>
-                        </Grid>
-                    </Grid>
+                        {/* Question Text Fields */}
+                        <Box>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                                <Typography variant="subtitle2" fontWeight="600">Question Text</Typography>
+                                <Button
+                                    variant="outlined" size="small" color="secondary"
+                                    startIcon={isFixingLatex ? <CircularProgress size={14} color="inherit" /> : <Wand2 size={14} />}
+                                    onClick={onAIFix}
+                                    disabled={isFixingLatex || (!editForm.questionText.en && !editForm.questionText.hi)}
+                                    sx={{ textTransform: 'none' }}
+                                >
+                                    {isFixingLatex ? 'Fixing...' : 'AI Fix LaTeX'}
+                                </Button>
+                            </Box>
+                            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)' }, gap: 2 }}>
+                                <Box>
+                                    <Typography variant="caption" color="text.secondary">English</Typography>
+                                    <TextField
+                                        fullWidth multiline rows={3}
+                                        value={editForm.questionText.en}
+                                        onChange={e => setEditForm(prev => ({ ...prev, questionText: { ...prev.questionText, en: e.target.value } }))}
+                                        sx={{ mt: 0.5 }}
+                                    />
+                                </Box>
+                                <Box>
+                                    <Typography variant="caption" color="text.secondary">Hindi</Typography>
+                                    <TextField
+                                        fullWidth multiline rows={3}
+                                        value={editForm.questionText.hi}
+                                        onChange={e => setEditForm(prev => ({ ...prev, questionText: { ...prev.questionText, hi: e.target.value } }))}
+                                        sx={{ mt: 0.5 }}
+                                    />
+                                </Box>
+                            </Box>
+                        </Box>
+
+                        {/* Options Fields (If MCQ) */}
+                        {editForm.questionType === 'MCQ' && (
+                            <Box>
+                                <Typography variant="subtitle2" fontWeight="600" gutterBottom>Options & Correct Answer</Typography>
+                                <RadioGroup
+                                    value={indexMap[editForm.correctOptionIndex]}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        setEditForm({ ...editForm, correctOptionIndex: indexMap.indexOf(val) });
+                                    }}
+                                >
+                                    {editForm.options.map((opt, i) => (
+                                        <Paper key={i} variant="outlined" sx={{
+                                            p: 2, mb: 1.5,
+                                            bgcolor: indexMap[editForm.correctOptionIndex] === indexMap[i] ? 'action.selected' : 'background.paper',
+                                            borderColor: indexMap[editForm.correctOptionIndex] === indexMap[i] ? 'primary.main' : 'divider'
+                                        }}>
+                                            <FormControlLabel
+                                                value={indexMap[i]} control={<Radio />}
+                                                label={
+                                                    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)' }, gap: 2, width: '100%', ml: 1 }}>
+                                                        <Box>
+                                                            <Typography variant="caption" fontWeight="600" color="text.secondary">Option {indexMap[i]} (EN)</Typography>
+                                                            <TextField
+                                                                fullWidth size="small"
+                                                                value={opt.en}
+                                                                onChange={e => {
+                                                                    const newOptions = [...editForm.options];
+                                                                    newOptions[i].en = e.target.value;
+                                                                    setEditForm(prev => ({ ...prev, options: newOptions }));
+                                                                }}
+                                                                sx={{ mt: 0.5 }}
+                                                            />
+                                                        </Box>
+                                                        <Box>
+                                                            <Typography variant="caption" fontWeight="600" color="text.secondary">Option {indexMap[i]} (HI)</Typography>
+                                                            <TextField
+                                                                fullWidth size="small"
+                                                                value={opt.hi}
+                                                                onChange={e => {
+                                                                    const newOptions = [...editForm.options];
+                                                                    newOptions[i].hi = e.target.value;
+                                                                    setEditForm(prev => ({ ...prev, options: newOptions }));
+                                                                }}
+                                                                sx={{ mt: 0.5 }}
+                                                            />
+                                                        </Box>
+                                                    </Box>
+                                                }
+                                                sx={{ width: '100%', alignItems: 'flex-start' }}
+                                            />
+                                        </Paper>
+                                    ))}
+                                </RadioGroup>
+                            </Box>
+                        )}
+
+                        {/* Model Answer Field */}
+                        <Box>
+                            <Typography variant="subtitle2" fontWeight="600" gutterBottom>Model Answer</Typography>
+                            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)' }, gap: 2 }}>
+                                <TextField
+                                    fullWidth multiline rows={3} label="English"
+                                    value={editForm.modelAnswer?.en || ""}
+                                    onChange={e => {
+                                        const val = e.target.value;
+                                        setEditForm(prev => ({
+                                            ...prev,
+                                            modelAnswer: { ...prev.modelAnswer, en: val },
+                                            explanation: { ...prev.explanation, en: val },
+                                        }));
+                                    }}
+                                />
+                                <TextField
+                                    fullWidth multiline rows={3} label="Hindi"
+                                    value={editForm.modelAnswer?.hi || ""}
+                                    onChange={e => {
+                                        const val = e.target.value;
+                                        setEditForm(prev => ({
+                                            ...prev,
+                                            modelAnswer: { ...prev.modelAnswer, hi: val },
+                                            explanation: { ...prev.explanation, hi: val },
+                                        }));
+                                    }}
+                                />
+                            </Box>
+                        </Box>
+
+                        <Button
+                            variant="contained" color="success" size="large"
+                            startIcon={isSaving ? <CircularProgress size={16} color="inherit" /> : <Save size={18} />}
+                            onClick={onSaveEdit}
+                            disabled={isSaving}
+                            sx={{ mt: 1, py: 1.5, fontWeight: 700 }}
+                        >
+                            {isSaving ? 'Saving Changes...' : 'Save Updated Question'}
+                        </Button>
+                    </Box>
                 ) : (
-                    <Typography variant="body1" fontWeight={600} mb={3} sx={{ lineHeight: 1.7 }} component="div">
-                        <LatexRenderer text={qText} />
-                    </Typography>
-                )}
+                    /* ────────────────────────────────────────────────────────────────
+                       VIEW MODE
+                       ──────────────────────────────────────────────────────────────── */
+                    <>
+                        {/* Language toggle */}
+                        {!splitView && (
+                            <ToggleButtonGroup size="small" exclusive value={lang}
+                                onChange={(_, v) => v && onLangChange(v)} sx={{ mb: 2 }}>
+                                <ToggleButton value="en">EN</ToggleButton>
+                                <ToggleButton value="hi">हि</ToggleButton>
+                            </ToggleButtonGroup>
+                        )}
 
-                {/* Options */}
-                <Stack spacing={1} mb={3}>
-                    {(question.options || []).map((opt, i) => {
-                        const isCorrect = i === question.correctOptionIndex;
-                        return (
-                            <Stack key={i} direction="row" alignItems="center" spacing={1.5} sx={{
-                                px: 2, py: 1.2, borderRadius: 2, border: "1.5px solid",
-                                borderColor: isCorrect ? "success.main" : "divider",
-                                bgcolor: isCorrect ? "success.light" : "transparent",
-                            }}>
-                                <Typography variant="caption" fontWeight={800} sx={{
-                                    width: 24, height: 24, borderRadius: "50%",
-                                    display: "flex", alignItems: "center", justifyContent: "center",
-                                    bgcolor: isCorrect ? "success.main" : "action.hover",
-                                    color: isCorrect ? "success.contrastText" : "text.primary",
-                                    flexShrink: 0,
-                                }}>
-                                    {OPTION_LABELS[i]}
-                                </Typography>
-                                {splitView ? (
-                                    <Grid container spacing={1}>
-                                        <Grid item xs={6}><LatexRenderer text={opt?.en || ""} /></Grid>
-                                        <Grid item xs={6}><LatexRenderer text={opt?.hi || ""} /></Grid>
-                                    </Grid>
-                                ) : (
-                                    <Typography variant="body2" component="div">
-                                        <LatexRenderer text={renderOptionText(opt)} />
+                        {/* Question text */}
+                        {splitView ? (
+                            <Grid container spacing={2} mb={3}>
+                                <Grid item xs={6}>
+                                    <Typography variant="caption" color="text.secondary" mb={0.5} display="block">English</Typography>
+                                    <Typography variant="body1" fontWeight={600} sx={{ lineHeight: 1.7 }} component="div">
+                                        <LatexRenderer text={question.questionText?.en || ""} />
                                     </Typography>
-                                )}
-                                {isCorrect && <CheckCircle2 size={15} style={{ color: "var(--mui-palette-success-main)", marginLeft: "auto", flexShrink: 0 }} />}
-                            </Stack>
-                        );
-                    })}
-                </Stack>
+                                </Grid>
+                                <Grid item xs={6}>
+                                    <Typography variant="caption" color="text.secondary" mb={0.5} display="block">हिन्दी</Typography>
+                                    <Typography variant="body1" fontWeight={600} sx={{ lineHeight: 1.7 }} component="div">
+                                        <LatexRenderer text={question.questionText?.hi || ""} />
+                                    </Typography>
+                                </Grid>
+                            </Grid>
+                        ) : (
+                            <Typography variant="body1" fontWeight={600} mb={3} sx={{ lineHeight: 1.7 }} component="div">
+                                <LatexRenderer text={qText} />
+                            </Typography>
+                        )}
 
-                {/* Explanation */}
-                <Divider sx={{ mb: 1.5 }} />
-                <Stack direction="row" alignItems="center" justifyContent="space-between" mb={1}>
-                    <Stack direction="row" alignItems="center" spacing={0.5}>
-                        <Info size={15} style={{ opacity: 0.5 }} />
-                        <Typography variant="caption" color="text.secondary" fontWeight={600}>EXPLANATION</Typography>
-                    </Stack>
-                    <IconButton size="small" onClick={() => setExplanationOpen((o) => !o)}>
-                        {explanationOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
-                    </IconButton>
-                </Stack>
-                <Collapse in={explanationOpen}>
-                    <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.7 }} component="div">
-                        <LatexRenderer text={explanation || "No explanation provided."} />
-                    </Typography>
-                </Collapse>
+                        {/* Options */}
+                        <Stack spacing={1} mb={3}>
+                            {(question.options || []).map((opt, i) => {
+                                const isCorrect = i === question.correctOptionIndex;
+                                return (
+                                    <Stack key={i} direction="row" alignItems="center" spacing={1.5} sx={{
+                                        px: 2, py: 1.2, borderRadius: 2, border: "1.5px solid",
+                                        borderColor: isCorrect ? "success.main" : "divider",
+                                        bgcolor: isCorrect ? "success.light" : "transparent",
+                                    }}>
+                                        <Typography variant="caption" fontWeight={800} sx={{
+                                            width: 24, height: 24, borderRadius: "50%",
+                                            display: "flex", alignItems: "center", justifyContent: "center",
+                                            bgcolor: isCorrect ? "success.main" : "action.hover",
+                                            color: isCorrect ? "success.contrastText" : "text.primary",
+                                            flexShrink: 0,
+                                        }}>
+                                            {OPTION_LABELS[i]}
+                                        </Typography>
+                                        {splitView ? (
+                                            <Grid container spacing={1}>
+                                                <Grid item xs={6}><LatexRenderer text={opt?.en || ""} /></Grid>
+                                                <Grid item xs={6}><LatexRenderer text={opt?.hi || ""} /></Grid>
+                                            </Grid>
+                                        ) : (
+                                            <Typography variant="body2" component="div">
+                                                <LatexRenderer text={renderOptionText(opt)} />
+                                            </Typography>
+                                        )}
+                                        {isCorrect && <CheckCircle2 size={15} style={{ color: "var(--mui-palette-success-main)", marginLeft: "auto", flexShrink: 0 }} />}
+                                    </Stack>
+                                );
+                            })}
+                        </Stack>
+
+                        {/* Model Answer */}
+                        <Divider sx={{ mb: 1.5 }} />
+                        <Stack direction="row" alignItems="center" justifyContent="space-between" mb={1}>
+                            <Stack direction="row" alignItems="center" spacing={0.5}>
+                                <Info size={15} style={{ opacity: 0.5 }} />
+                                <Typography variant="caption" color="text.secondary" fontWeight={600}>MODEL ANSWER</Typography>
+                            </Stack>
+                            <IconButton size="small" onClick={() => setModelAnswerOpen((o) => !o)}>
+                                {modelAnswerOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+                            </IconButton>
+                        </Stack>
+                        <Collapse in={modelAnswerOpen}>
+                            {splitView ? (
+                                <Grid container spacing={2}>
+                                    <Grid item xs={6}>
+                                        <Typography variant="caption" color="text.secondary" mb={0.5} display="block">English</Typography>
+                                        <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.7 }} component="div">
+                                            <LatexRenderer text={getModelAnswer(question, 'en') || "No model answer provided."} />
+                                        </Typography>
+                                    </Grid>
+                                    <Grid item xs={6}>
+                                        <Typography variant="caption" color="text.secondary" mb={0.5} display="block">हिन्दी</Typography>
+                                        <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.7 }} component="div">
+                                            <LatexRenderer text={getModelAnswer(question, 'hi') || "No model answer provided."} />
+                                        </Typography>
+                                    </Grid>
+                                </Grid>
+                            ) : (
+                                <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.7 }} component="div">
+                                    <LatexRenderer text={modelAnswer || "No model answer provided."} />
+                                </Typography>
+                            )}
+                        </Collapse>
+                    </>
+                )}
 
                 {/* ID strip */}
-                <Stack direction="row" spacing={2} mt={2}>
+                <Stack direction="row" spacing={2} mt={2} pt={2} borderTop="1px dashed" borderColor="divider">
                     <Typography variant="caption" color="text.disabled" fontFamily="monospace">
                         ID: {question._id}
                     </Typography>
@@ -486,7 +952,7 @@ function QuestionCard({ question, index, total, lang, onLangChange, flagged, onF
 
 function AuditPanel({
     review, onReviewChange, onSubmit, onSubmitNext, onSkip,
-    submitting, skippedCount, aiResult, question
+    submitting, skippedCount, aiResult, question, disableActions
 }) {
     const { status, remark } = review;
 
@@ -510,7 +976,7 @@ function AuditPanel({
     };
 
     return (
-        <Card elevation={0} sx={{ border: "1px solid", borderColor: "divider", height: "100%" }}>
+        <Card elevation={0} sx={{ border: "1px solid", borderColor: "divider", height: "100%", opacity: disableActions ? 0.6 : 1, pointerEvents: disableActions ? "none" : "auto" }}>
             <CardContent sx={{ p: 3 }}>
                 <Stack direction="row" alignItems="center" justifyContent="space-between" mb={2}>
                     <Typography variant="h6" fontWeight={700}>Audit Decision</Typography>
@@ -612,7 +1078,6 @@ function AuditPanel({
 
 // ─── AI Verification Progress Dialog ─────────────────────────────────────────
 
-// AI Verification Progress Dialog
 function AutoVerifyDialog({ open, progress, total, batchSize }) {
     const batchesDone = Math.floor(progress / batchSize);
     const totalBatches = Math.ceil(total / batchSize);
@@ -641,6 +1106,189 @@ function AutoVerifyDialog({ open, progress, total, batchSize }) {
                         Checking answer validity, Hindi translation, ambiguity, chapter fit...
                     </Typography>
                 </Stack>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+// ─── Batch AI LaTeX Fix Dialog ────────────────────────────────────────────────
+
+function BatchLatexFixDialog({
+    open,
+    onClose,
+    running,
+    progress,
+    onStart,
+    onStop,
+    targetName,
+    totalQuestions
+}) {
+    const [onlyUnreviewed, setOnlyUnreviewed] = useState(false);
+
+    const pct = progress.total === 0 ? 0 : Math.round((progress.current / progress.total) * 100);
+    const isFinished = !running && progress.total > 0 && progress.current >= progress.total;
+
+    return (
+        <Dialog open={open} onClose={running ? undefined : onClose} maxWidth="sm" fullWidth>
+            <DialogTitle>
+                <Stack direction="row" alignItems="center" justifyContent="space-between">
+                    <Stack direction="row" alignItems="center" spacing={1.5}>
+                        <Wand2 size={22} color="#7c3aed" />
+                        <Box>
+                            <Typography variant="h6" fontWeight={700}>
+                                Auto-Fix Chapter LaTeX (AI)
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                                Target: {targetName || "Current Selection"} ({totalQuestions} Questions)
+                            </Typography>
+                        </Box>
+                    </Stack>
+                    {!running && (
+                        <IconButton size="small" onClick={onClose}>
+                            <X size={18} />
+                        </IconButton>
+                    )}
+                </Stack>
+            </DialogTitle>
+
+            <DialogContent dividers>
+                {!running && !isFinished && (
+                    <Stack spacing={2.5} py={1}>
+                        <Alert severity="info" icon={<Sparkles size={18} />}>
+                            This tool automatically scans all questions in this chapter, repairs broken LaTeX ($...$ inline and $$...$$ display math), fixes OCR artifacts, and generates comprehensive step-by-step bilingual explanations directly into MongoDB.
+                        </Alert>
+
+                        <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                            <Typography variant="subtitle2" fontWeight={600} gutterBottom>
+                                Configuration
+                            </Typography>
+                            <FormControlLabel
+                                control={
+                                    <Checkbox
+                                        checked={onlyUnreviewed}
+                                        onChange={(e) => setOnlyUnreviewed(e.target.checked)}
+                                    />
+                                }
+                                label={
+                                    <Box>
+                                        <Typography variant="body2">Only fix unreviewed or flagged questions</Typography>
+                                        <Typography variant="caption" color="text.secondary">
+                                            Skips questions that have already been marked as approved.
+                                        </Typography>
+                                    </Box>
+                                }
+                            />
+                        </Paper>
+
+                        <Stack direction="row" spacing={1.5} justifyContent="flex-end">
+                            <Button variant="outlined" onClick={onClose}>
+                                Cancel
+                            </Button>
+                            <Button
+                                variant="contained"
+                                color="secondary"
+                                startIcon={<Wand2 size={16} />}
+                                onClick={() => onStart(onlyUnreviewed)}
+                            >
+                                Start Auto-Fix ({totalQuestions} Questions)
+                            </Button>
+                        </Stack>
+                    </Stack>
+                )}
+
+                {running && (
+                    <Stack spacing={2.5} py={1}>
+                        <Box>
+                            <Stack direction="row" justifyContent="space-between" mb={0.5}>
+                                <Typography variant="body2" fontWeight={600}>
+                                    Processing: {progress.current} of {progress.total}
+                                </Typography>
+                                <Typography variant="body2" fontWeight={700} color="secondary.main">
+                                    {pct}%
+                                </Typography>
+                            </Stack>
+                            <LinearProgress
+                                variant="determinate"
+                                value={pct}
+                                color="secondary"
+                                sx={{ borderRadius: 4, height: 8 }}
+                            />
+                        </Box>
+
+                        <Stack direction="row" spacing={1.5} justifyContent="space-around">
+                            <Box sx={{ textAlign: "center", p: 1, borderRadius: 1.5, bgcolor: "action.hover", minWidth: 90 }}>
+                                <Typography variant="h6" fontWeight={700} color="success.main">
+                                    {progress.fixed}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">Fixed & Saved</Typography>
+                            </Box>
+                            <Box sx={{ textAlign: "center", p: 1, borderRadius: 1.5, bgcolor: "action.hover", minWidth: 90 }}>
+                                <Typography variant="h6" fontWeight={700} color="error.main">
+                                    {progress.failed}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">Errors</Typography>
+                            </Box>
+                            <Box sx={{ textAlign: "center", p: 1, borderRadius: 1.5, bgcolor: "action.hover", minWidth: 90 }}>
+                                <Typography variant="h6" fontWeight={700} color="text.secondary">
+                                    {Math.max(0, progress.total - progress.current)}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">Remaining</Typography>
+                            </Box>
+                        </Stack>
+
+                        {progress.activeText && (
+                            <Box sx={{ p: 1.5, bgcolor: "action.hover", borderRadius: 2, borderLeft: '3px solid', borderColor: 'secondary.main' }}>
+                                <Typography variant="caption" color="text.secondary" display="block">
+                                    Current Operation:
+                                </Typography>
+                                <Typography variant="body2" noWrap fontWeight={500}>
+                                    {progress.activeText}
+                                </Typography>
+                            </Box>
+                        )}
+
+                        {progress.log && progress.log.length > 0 && (
+                            <Box sx={{ bgcolor: "grey.900", color: "grey.100", p: 1.5, borderRadius: 1.5, maxHeight: 110, overflowY: "auto" }}>
+                                <Typography variant="caption" color="grey.400" display="block" mb={0.5}>
+                                    Recent Activity:
+                                </Typography>
+                                {progress.log.map((item, idx) => (
+                                    <Typography key={idx} variant="caption" display="block" sx={{ fontFamily: 'monospace', fontSize: 11 }}>
+                                        • {item}
+                                    </Typography>
+                                ))}
+                            </Box>
+                        )}
+
+                        <Stack direction="row" justifyContent="flex-end">
+                            <Button
+                                variant="outlined"
+                                color="error"
+                                onClick={onStop}
+                            >
+                                Stop Auto-Fix
+                            </Button>
+                        </Stack>
+                    </Stack>
+                )}
+
+                {isFinished && (
+                    <Stack spacing={2.5} py={1} textAlign="center" alignItems="center">
+                        <CheckCircle2 size={48} color="#22c55e" />
+                        <Box>
+                            <Typography variant="h6" fontWeight={700}>
+                                Chapter Auto-Fix Finished!
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary" mt={0.5}>
+                                Successfully corrected and saved {progress.fixed} question{progress.fixed === 1 ? '' : 's'}.
+                                {progress.failed > 0 && ` (${progress.failed} failed)`}
+                            </Typography>
+                        </Box>
+                        <Button variant="contained" color="primary" onClick={onClose}>
+                            Back to Reviewer
+                        </Button>
+                    </Stack>
+                )}
             </DialogContent>
         </Dialog>
     );
@@ -858,7 +1506,10 @@ function SessionSummary({ stats, questions, reviews, aiResults, selection, onRes
         const blob = new Blob([csv], { type: "text/csv" });
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
-        a.download = `audit-${selection.selectedSubject?.name || "questions"}-${new Date().toISOString().slice(0, 10)}.csv`;
+        const filenameTitle = selection.type === "mocktest"
+            ? (selection.mockTest?.title || selection.title || "mocktest").replace(/[^a-zA-Z0-9_-]/g, "_")
+            : (selection.selectedSubject?.name || "questions");
+        a.download = `audit-${filenameTitle}-${new Date().toISOString().slice(0, 10)}.csv`;
         a.click();
     };
 
@@ -888,7 +1539,7 @@ function SessionSummary({ stats, questions, reviews, aiResults, selection, onRes
                     </Button>
                 )}
                 <Button variant="outlined" startIcon={<ChevronLeft size={15} />} onClick={onReset}>
-                    Change Chapter
+                    {selection.type === "mocktest" ? "Change Mock Test" : "Change Chapter"}
                 </Button>
             </Stack>
         </Card>
@@ -915,12 +1566,30 @@ export default function QuestionQualityAudit() {
     const [submitting, setSubmitting] = useState(false);
     const [sessionDone, setSessionDone] = useState(false);
 
+    // Edit State
+    const [isEditing, setIsEditing] = useState(false);
+    const [editForm, setEditForm] = useState(null);
+    const [isSavingEdit, setIsSavingEdit] = useState(false);
+    const [isFixingLatex, setIsFixingLatex] = useState(false);
+
     // Auto-verify state
     const [autoVerifying, setAutoVerifying] = useState(false);
     const [verifyProgress, setVerifyProgress] = useState(0);
     const [verifyDialogOpen, setVerifyDialogOpen] = useState(false);
-    const BATCHSIZE = 10;
     const BATCH_SIZE = 10;
+
+    // Batch AI LaTeX Fix State
+    const [batchFixOpen, setBatchFixOpen] = useState(false);
+    const [batchFixRunning, setBatchFixRunning] = useState(false);
+    const [batchFixProgress, setBatchFixProgress] = useState({
+        current: 0,
+        total: 0,
+        fixed: 0,
+        failed: 0,
+        activeText: "",
+        log: []
+    });
+    const batchFixAbortRef = useRef(false);
 
     const currentQuestion = questions[currentIndex] || null;
     const currentReview = reviews[currentQuestion?._id] || { status: null, remark: "" };
@@ -934,26 +1603,127 @@ export default function QuestionQualityAudit() {
         aiVerified: Object.keys(aiResults).length,
     };
 
+    // Reset Edit State on Navigation
+    useEffect(() => {
+        setIsEditing(false);
+        setEditForm(null);
+    }, [currentIndex]);
+
+    // Setup Edit Form data
+    useEffect(() => {
+        if (isEditing && currentQuestion) {
+            const rawMA = (currentQuestion.modelAnswer !== undefined && currentQuestion.modelAnswer !== null && currentQuestion.modelAnswer !== "")
+                ? currentQuestion.modelAnswer
+                : currentQuestion.explanation;
+
+            const parsedMA = typeof rawMA === 'string'
+                ? { en: rawMA, hi: '' }
+                : (rawMA || { en: '', hi: '' });
+
+            setEditForm({
+                questionType: currentQuestion.questionType || 'MCQ',
+                questionText: currentQuestion.questionText || { en: '', hi: '' },
+                options: currentQuestion.options && currentQuestion.options.length >= 4
+                    ? [...currentQuestion.options]
+                    : [{ en: '', hi: '' }, { en: '', hi: '' }, { en: '', hi: '' }, { en: '', hi: '' }],
+                correctOptionIndex: currentQuestion.correctOptionIndex ?? -1,
+                modelAnswer: { en: parsedMA.en || '', hi: parsedMA.hi || '' },
+                explanation: currentQuestion.explanation || { en: parsedMA.en || '', hi: parsedMA.hi || '' },
+                marks: currentQuestion.marks || 1
+            });
+        }
+    }, [isEditing, currentQuestion]);
+
+    // URL parameters check on mount
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const mode = params.get("mode");
+        const testId = params.get("testId");
+        const title = params.get("title");
+
+        if (mode === "mocktest" && testId) {
+            setSelection({
+                type: "mocktest",
+                testId,
+                title: title ? decodeURIComponent(title) : "Mock Test",
+            });
+            return;
+        }
+
+        const cls = params.get("class");
+        const subjectId = params.get("subject");
+        const chapterId = params.get("chapter");
+        if (cls && subjectId) {
+            setSelection({
+                type: "chapter",
+                selectedClass: Number(cls),
+                selectedSubject: { _id: subjectId, name: params.get("subjectName") || subjectId },
+                selectedChapter: chapterId && chapterId !== "all" ? { _id: chapterId, name: params.get("chapterName") || chapterId } : null,
+            });
+        }
+    }, []);
+
     // ── Fetch questions ──
     const fetchQuestions = async (sel) => {
         setLoadingQuestions(true);
         setCurrentIndex(0);
         try {
-            const params = new URLSearchParams({ subjectId: sel.selectedSubject._id });
-            if (sel.selectedChapter?._id) params.set("chapterId", sel.selectedChapter._id);
-            const res = await fetch(`${API_BASE_URL}/utility/question?${params}`, { headers: authHeaders() });
-            const data = await res.json();
-            const qs = data.data || data || [];
+            let qs = [];
+            let key = "";
+
+            if (sel.type === "mocktest") {
+                const testId = sel.testId || sel.mockTest?._id;
+                const res = await fetch(`${API_BASE_URL}/tests/${testId}/review-questions`, {
+                    headers: authHeaders(),
+                });
+                if (!res.ok) throw new Error("Failed to load mock test questions");
+                const data = await res.json();
+                qs = data.questions || [];
+                if (data.test && !sel.mockTest) {
+                    setSelection((prev) => ({ ...prev, mockTest: data.test }));
+                }
+                key = mockTestSessionKey(testId);
+            } else {
+                const params = new URLSearchParams({ subjectId: sel.selectedSubject._id });
+                if (sel.selectedChapter?._id) params.set("chapterId", sel.selectedChapter._id);
+                const res = await fetch(`${API_BASE_URL}/utility/question?${params}`, { headers: authHeaders() });
+                const data = await res.json();
+                qs = data.data || data || [];
+                key = sessionKey(sel.selectedClass, sel.selectedSubject._id, sel.selectedChapter?._id || "all");
+            }
+
             setQuestions(qs);
 
-            const key = sessionKey(sel.selectedClass, sel.selectedSubject._id, sel.selectedChapter?._id || "all");
+            // Pre-fill reviews from DB audit records if present
+            const dbReviews = {};
+            qs.forEach((q) => {
+                if (q.audit?.status) {
+                    dbReviews[q._id] = {
+                        status: q.audit.status,
+                        remark: q.audit.remark || "",
+                        reviewedBy: q.audit.reviewedBy,
+                        reviewerName: q.audit.reviewerName,
+                        timestamp: q.audit.timestamp,
+                        existingStatus: q.audit.status,
+                        existingReviewer: q.audit.reviewerName,
+                        existingDate: q.audit.timestamp,
+                    };
+                }
+            });
+
             const saved = loadSession(key);
-            if (saved.reviews) setReviews(saved.reviews);
-            if (saved.currentIndex) setCurrentIndex(saved.currentIndex);
+            setReviews({ ...dbReviews, ...(saved.reviews || {}) });
+            if (saved.currentIndex !== undefined && saved.currentIndex < qs.length) {
+                setCurrentIndex(saved.currentIndex);
+            }
             if (saved.flags) setFlags(saved.flags);
             if (saved.aiResults) setAiResults(saved.aiResults);
-        } catch { toast.error("Failed to load questions"); }
-        finally { setLoadingQuestions(false); }
+        } catch (err) {
+            console.error("Failed to load questions:", err);
+            toast.error("Failed to load questions");
+        } finally {
+            setLoadingQuestions(false);
+        }
     };
 
     useEffect(() => { if (selection) fetchQuestions(selection); }, [selection]);
@@ -961,16 +1731,112 @@ export default function QuestionQualityAudit() {
     // Session persistence
     useEffect(() => {
         if (!selection || !questions.length) return;
-        const key = sessionKey(selection.selectedClass, selection.selectedSubject._id, selection.selectedChapter?._id || "all");
+        const key = selection.type === "mocktest"
+            ? mockTestSessionKey(selection.testId || selection.mockTest?._id)
+            : sessionKey(selection.selectedClass, selection.selectedSubject?._id, selection.selectedChapter?._id || "all");
         saveSession(key, { reviews, currentIndex, flags, aiResults });
     }, [reviews, currentIndex, flags, aiResults, selection, questions.length]);
 
-    // ── Auto-verify via backend ──
-    // Auto-verify via backend
-    const handleAutoVerify = useCallback(async (e) => {
-        // 1. Prevent accidental form submission / page reloads
-        if (e && e.preventDefault) e.preventDefault();
 
+    // ── Edit Handlers ──
+    const handleAIFixLatex = async () => {
+        setIsFixingLatex(true);
+        try {
+            const token = localStorage.getItem('token');
+            const payload = {
+                questionType: editForm.questionType,
+                questionText: editForm.questionText,
+                explanation: editForm.modelAnswer || editForm.explanation,
+                correctOptionIndex: editForm.correctOptionIndex,
+            };
+            if (editForm.questionType === 'MCQ') {
+                payload.options = editForm.options;
+            }
+
+            const res = await fetch(`${API_BASE_URL}/utility/ai/fix-latex`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify(payload)
+            });
+
+            if (!res.ok) throw new Error("Failed to fix LaTeX. Server returned an error.");
+
+            const data = await res.json();
+            const returnedAnswer = data.modelAnswer || data.explanation;
+
+            setEditForm(prev => ({
+                ...prev,
+                questionText: data.questionText || prev.questionText,
+                options: prev.questionType === 'MCQ' ? (data.options || prev.options) : prev.options,
+                correctOptionIndex: data.correctOptionIndex !== undefined ? data.correctOptionIndex : prev.correctOptionIndex,
+                modelAnswer: returnedAnswer || prev.modelAnswer,
+                explanation: data.explanation || returnedAnswer || prev.explanation,
+            }));
+            toast.success("AI finished correcting LaTeX syntax.");
+        } catch (error) {
+            console.error("AI Fix Error:", error);
+            toast.error("Failed to fix LaTeX via AI.");
+        } finally {
+            setIsFixingLatex(false);
+        }
+    };
+
+    const handleSaveEdit = async () => {
+        if (!editForm.questionText.en.trim() && !editForm.questionText.hi.trim()) {
+            return toast.error("Question text cannot be empty.");
+        }
+
+        setIsSavingEdit(true);
+        try {
+            const token = localStorage.getItem('token');
+            const body = { ...editForm, marks: parseInt(editForm.marks) };
+
+            if (body.questionType === 'MCQ') {
+                body.options = body.options.filter(opt => opt.en.trim() !== '' || opt.hi.trim() !== '');
+            } else {
+                delete body.options;
+                delete body.correctOptionIndex;
+            }
+
+            if (editForm.modelAnswer) {
+                body.modelAnswer = editForm.modelAnswer;
+                body.explanation = editForm.modelAnswer;
+            }
+
+            const res = await fetch(`${API_BASE_URL}/utility/question/${currentQuestion._id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify(body),
+            });
+
+            if (!res.ok) {
+                const errJson = await res.json().catch(() => ({}));
+                throw new Error(errJson.message || "Failed to update question in database");
+            }
+
+            const updatedQuestion = await res.json();
+
+            // Update the local list so the UI reflects changes immediately
+            setQuestions(prev => {
+                const updated = [...prev];
+                updated[currentIndex] = { ...updated[currentIndex], ...updatedQuestion, ...body };
+                return updated;
+            });
+
+            setIsEditing(false);
+            toast.success("Question updated in database successfully!");
+        } catch (error) {
+            console.error("Save Edit Error:", error);
+            toast.error(error.message || "Failed to save edited question.");
+        } finally {
+            setIsSavingEdit(false);
+        }
+    };
+
+
+    // ── Auto-verify via backend ──
+    const handleAutoVerify = useCallback(async (e) => {
+        if (e && e.preventDefault) e.preventDefault();
         if (!questions || !questions.length) return;
 
         setAutoVerifying(true);
@@ -979,19 +1845,15 @@ export default function QuestionQualityAudit() {
 
         try {
             const body = {
-                // 2. Safe fallback to _id since Mongoose .lean() strips the .id virtual
                 questionIds: questions.map(q => q._id || q.id),
-                batchSize: BATCHSIZE
+                batchSize: BATCH_SIZE
             };
 
-            // 3. Fetch token dynamically (module-level constants can hold stale/null tokens)
             const token = localStorage.getItem('token');
             const headers = {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`
             };
-
-            console.log('[AutoVerify] Calling backend...', body);
 
             const res = await fetch(`${API_BASE_URL}/questions/auto-verify`, {
                 method: 'POST',
@@ -1004,9 +1866,6 @@ export default function QuestionQualityAudit() {
                 throw new Error(`Server error ${res.status}: ${text}`);
             }
 
-            console.log('[AutoVerify] Stream connected, reading chunks...');
-
-            // 4. Use raw TextDecoder instead of TextDecoderStream for 100% browser compatibility
             const reader = res.body.getReader();
             const decoder = new TextDecoder('utf-8');
             let buffer = '';
@@ -1017,24 +1876,17 @@ export default function QuestionQualityAudit() {
 
                 buffer += decoder.decode(value, { stream: true });
                 const messages = buffer.split('\n\n');
-
-                // Keep the last incomplete chunk in the buffer
                 buffer = messages.pop() || '';
 
                 for (const msg of messages) {
                     if (msg.trim().startsWith('data:')) {
-                        // Safely strip the "data:" prefix
                         const dataStr = msg.replace(/^data:\s*/, '').trim();
                         if (!dataStr) continue;
 
                         try {
                             const data = JSON.parse(dataStr);
-                            console.log('[AutoVerify] Parsed chunk:', data.type);
 
-                            if (data.type === 'start') {
-                                console.log(`Processing total of ${data.total} questions`);
-                            }
-                            else if (data.type === 'progress') {
+                            if (data.type === 'progress') {
                                 setVerifyProgress(data.done);
                                 if (data.results && data.results.length > 0) {
                                     setAiResults(prev => {
@@ -1068,11 +1920,120 @@ export default function QuestionQualityAudit() {
             setAutoVerifying(false);
             setTimeout(() => setVerifyDialogOpen(false), 600);
         }
-    }, [questions, API_BASE_URL, BATCHSIZE]);
+    }, [questions, API_BASE_URL]);
+
+    // ── Batch Auto-Fix Chapter LaTeX ──
+    const handleStartBatchFix = async (onlyUnreviewed = false) => {
+        let targetQuestions = questions;
+        if (onlyUnreviewed) {
+            targetQuestions = questions.filter(q => !reviews[q._id]?.status || flags[q._id]);
+        }
+        if (!targetQuestions.length) {
+            toast.info("No questions to fix matching the chosen criteria.");
+            return;
+        }
+
+        setBatchFixRunning(true);
+        batchFixAbortRef.current = false;
+        setBatchFixProgress({
+            current: 0,
+            total: targetQuestions.length,
+            fixed: 0,
+            failed: 0,
+            activeText: "Starting batch LaTeX fix...",
+            log: []
+        });
+
+        const token = localStorage.getItem("token");
+        const headers = {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+        };
+
+        let processedCount = 0;
+        let fixedCount = 0;
+        let failedCount = 0;
+        const concurrency = 2;
+        let nextIndex = 0;
+
+        const runWorker = async () => {
+            while (nextIndex < targetQuestions.length && !batchFixAbortRef.current) {
+                const indexToProcess = nextIndex++;
+                const q = targetQuestions[indexToProcess];
+                const qId = q._id || q.id;
+
+                setBatchFixProgress(prev => ({
+                    ...prev,
+                    activeText: `Q#${indexToProcess + 1}: ${(q.questionText?.en || q.questionText?.hi || "").substring(0, 50)}...`
+                }));
+
+                try {
+                    const res = await fetch(`${API_BASE_URL}/utility/ai/fix-and-save-question/${qId}`, {
+                        method: "POST",
+                        headers
+                    });
+
+                    if (!res.ok) {
+                        throw new Error(`HTTP ${res.status}`);
+                    }
+
+                    const updatedQuestion = await res.json();
+                    fixedCount++;
+
+                    // Dynamically update the questions array in state
+                    setQuestions(prev => prev.map(item => (item._id === qId ? updatedQuestion : item)));
+
+                    setBatchFixProgress(prev => ({
+                        ...prev,
+                        fixed: fixedCount,
+                        log: [`Q#${indexToProcess + 1} fixed & saved`, ...prev.log.slice(0, 4)]
+                    }));
+                } catch (err) {
+                    console.error(`Failed to fix question ${qId}:`, err);
+                    failedCount++;
+                    setBatchFixProgress(prev => ({
+                        ...prev,
+                        failed: failedCount,
+                        log: [`Q#${indexToProcess + 1} error: ${err.message}`, ...prev.log.slice(0, 4)]
+                    }));
+                } finally {
+                    processedCount++;
+                    setBatchFixProgress(prev => ({
+                        ...prev,
+                        current: processedCount
+                    }));
+                }
+            }
+        };
+
+        const workers = [];
+        for (let i = 0; i < Math.min(concurrency, targetQuestions.length); i++) {
+            workers.push(runWorker());
+        }
+        await Promise.all(workers);
+
+        setBatchFixRunning(false);
+        if (batchFixAbortRef.current) {
+            toast.warning(`Auto-fix stopped. ${fixedCount} questions were saved.`);
+        } else {
+            toast.success(`Batch LaTeX fix completed! ${fixedCount} fixed, ${failedCount} errors.`);
+        }
+    };
+
+    const handleStopBatchFix = () => {
+        batchFixAbortRef.current = true;
+        setBatchFixRunning(false);
+    };
+
     // ── Navigation ──
     const navigate = useCallback((dir) => {
+        // Prevent accidental navigation if there are unsaved edits
+        if (isEditing) {
+            const confirmLeave = window.confirm("You have unsaved edits. Discard them?");
+            if (!confirmLeave) return;
+        }
         setCurrentIndex((i) => Math.max(0, Math.min(questions.length - 1, i + dir)));
-    }, [questions.length]);
+    }, [questions.length, isEditing]);
 
     const updateReview = useCallback((qid, patch) => {
         if (!qid) return;
@@ -1124,7 +2085,9 @@ export default function QuestionQualityAudit() {
     // ── Keyboard shortcuts ──
     useEffect(() => {
         const handler = (e) => {
-            if (e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT") return;
+            // Disable shortcuts if we are editing or typing in a field
+            if (isEditing || e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT") return;
+
             if (e.key === "ArrowRight") navigate(1);
             else if (e.key === "ArrowLeft") navigate(-1);
             else if (e.key === "a" || e.key === "A") updateReview(currentQuestion?._id, { status: "approved" });
@@ -1133,7 +2096,7 @@ export default function QuestionQualityAudit() {
         };
         window.addEventListener("keydown", handler);
         return () => window.removeEventListener("keydown", handler);
-    }, [currentQuestion, navigate, updateReview, submitReview]);
+    }, [currentQuestion, navigate, updateReview, submitReview, isEditing]);
 
     const handleSkip = () => {
         const qid = currentQuestion?._id;
@@ -1149,22 +2112,34 @@ export default function QuestionQualityAudit() {
         else { setSplitView(false); setLang(v); }
     };
 
+    const handleResetSelection = () => {
+        window.history.replaceState({}, "", window.location.pathname);
+        setSelection(null);
+        setSessionDone(false);
+        setQuestions([]);
+        setReviews({});
+        setAiResults({});
+        setFlags({});
+        setCurrentIndex(0);
+    };
+
     // ── Setup screen ──
     if (!selection) {
         return (
-            <Box sx={{ p: { xs: 2, md: 4 } }}>
-                <Stack direction="row" alignItems="center" spacing={1.5} mb={1}>
-                    <ShieldCheck size={24} />
-                    <Typography variant="h5" fontWeight={700}>Question Quality Audit</Typography>
-                </Stack>
-                <Typography variant="body2" color="text.secondary" mb={4}>
-                    Human review + AI verification for bilingual MCQ quality control.
-                </Typography>
-                <SetupWizard onStart={(sel) => {
-                    setSelection(sel); setSessionDone(false);
-                    setReviews({}); setAiResults({});
-                }} />
-            </Box>
+            <AuditSetupHub
+                onStartSubjectChapter={(sel) => {
+                    setSelection({ type: "chapter", ...sel });
+                    setSessionDone(false);
+                    setReviews({});
+                    setAiResults({});
+                }}
+                onStartMockTest={(sel) => {
+                    setSelection(sel);
+                    setSessionDone(false);
+                    setReviews({});
+                    setAiResults({});
+                }}
+            />
         );
     }
 
@@ -1181,7 +2156,7 @@ export default function QuestionQualityAudit() {
         return (
             <Box sx={{ p: 4, textAlign: "center" }}>
                 <Typography variant="h6" color="text.secondary">No questions found.</Typography>
-                <Button sx={{ mt: 2 }} onClick={() => setSelection(null)} startIcon={<ChevronLeft size={16} />}>Change Selection</Button>
+                <Button sx={{ mt: 2 }} onClick={handleResetSelection} startIcon={<ChevronLeft size={16} />}>Change Selection</Button>
             </Box>
         );
     }
@@ -1190,14 +2165,36 @@ export default function QuestionQualityAudit() {
         <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1280, mx: "auto" }}>
             {/* Top bar */}
             <Stack direction="row" alignItems="center" justifyContent="space-between" mb={2} flexWrap="wrap" gap={1}>
-                <Stack direction="row" alignItems="center" spacing={1}>
-                    <IconButton size="small" onClick={() => setSelection(null)}><ChevronLeft size={18} /></IconButton>
-                    <ShieldCheck size={20} />
-                    <Typography variant="h6" fontWeight={700}>Quality Audit</Typography>
-                    <Chip label={`Class ${selection.selectedClass}`} size="small" />
-                    <Chip label={selection.selectedSubject?.name} size="small" variant="outlined" />
-                    {selection.selectedChapter && <Chip label={selection.selectedChapter.name} size="small" variant="outlined" />}
-                </Stack>
+                {selection.type === "mocktest" ? (
+                    <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap">
+                        <IconButton size="small" onClick={handleResetSelection}><ChevronLeft size={18} /></IconButton>
+                        <ShieldCheck size={20} />
+                        <Typography variant="h6" fontWeight={700}>Mock Test Review</Typography>
+                        <Chip
+                            label={selection.mockTest?.title || selection.title || "Mock Test"}
+                            color="primary"
+                            size="small"
+                            sx={{ fontWeight: 700 }}
+                        />
+                        {(selection.mockTest?.studentClass || selection.studentClass) && (
+                            <Chip label={`Class ${selection.mockTest?.studentClass || selection.studentClass}`} size="small" />
+                        )}
+                        {selection.mockTest?.board && (
+                            <Chip label={selection.mockTest.board} size="small" variant="outlined" />
+                        )}
+                        <Chip label={`${questions.length} Questions`} size="small" variant="outlined" />
+                    </Stack>
+                ) : (
+                    <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap">
+                        <IconButton size="small" onClick={handleResetSelection}><ChevronLeft size={18} /></IconButton>
+                        <ShieldCheck size={20} />
+                        <Typography variant="h6" fontWeight={700}>Quality Audit</Typography>
+                        <Chip label={`Class ${selection.selectedClass}`} size="small" />
+                        <Chip label={selection.selectedSubject?.name} size="small" variant="outlined" />
+                        {selection.selectedChapter && <Chip label={selection.selectedChapter.name} size="small" variant="outlined" />}
+                        <Chip label={`${questions.length} Questions`} size="small" variant="outlined" />
+                    </Stack>
+                )}
                 <Stack direction="row" spacing={1}>
                     <Button size="small" startIcon={<BarChart3 size={15} />} onClick={() => setAnalyticsOpen(true)} variant="outlined">
                         Analytics
@@ -1210,11 +2207,15 @@ export default function QuestionQualityAudit() {
                 </Stack>
             </Stack>
 
-            {/* Stats + Auto Verify */}
+            {/* Stats + Auto Verify + Auto Fix */}
             <StatsBar
                 stats={stats}
                 autoVerifying={autoVerifying}
                 onAutoVerify={handleAutoVerify}
+                onOpenBatchFix={() => setBatchFixOpen(true)}
+                batchFixing={batchFixRunning}
+                batchProgress={batchFixProgress}
+                totalQuestions={questions.length}
             />
 
             {/* Session complete banner */}
@@ -1225,7 +2226,7 @@ export default function QuestionQualityAudit() {
                     reviews={reviews}
                     aiResults={aiResults}
                     selection={selection}
-                    onReset={() => setSelection(null)}
+                    onReset={handleResetSelection}
                     onReviewRejected={() => {
                         const firstRejected = questions.findIndex((q) => reviews[q._id]?.status === "rejected");
                         if (firstRejected >= 0) { setCurrentIndex(firstRejected); setSessionDone(false); }
@@ -1249,6 +2250,15 @@ export default function QuestionQualityAudit() {
                             const qid = currentQuestion?._id;
                             setFlags((f) => ({ ...f, [qid]: !f[qid] }));
                         }}
+                        // Edit Props Passed Down
+                        isEditing={isEditing}
+                        setIsEditing={setIsEditing}
+                        editForm={editForm}
+                        setEditForm={setEditForm}
+                        onSaveEdit={handleSaveEdit}
+                        isSaving={isSavingEdit}
+                        onAIFix={handleAIFixLatex}
+                        isFixingLatex={isFixingLatex}
                     />
                 </Grid>
                 <Grid item xs={12} md={5}>
@@ -1262,6 +2272,7 @@ export default function QuestionQualityAudit() {
                         skippedCount={stats.skipped}
                         aiResult={currentAI}
                         question={currentQuestion}
+                        disableActions={isEditing} // Block human review while editing
                     />
                 </Grid>
             </Grid>
@@ -1307,7 +2318,10 @@ export default function QuestionQualityAudit() {
                 reviews={reviews}
                 flags={flags}
                 aiResults={aiResults}
-                onJump={(i) => setCurrentIndex(i)}
+                onJump={(i) => {
+                    if (isEditing && !window.confirm("You have unsaved edits. Discard them?")) return;
+                    setCurrentIndex(i);
+                }}
             />
             <AuditAnalyticsDrawer
                 open={analyticsOpen}
@@ -1321,6 +2335,22 @@ export default function QuestionQualityAudit() {
                 progress={verifyProgress}
                 total={questions.length}
                 batchSize={BATCH_SIZE}
+            />
+            <BatchLatexFixDialog
+                open={batchFixOpen}
+                onClose={() => setBatchFixOpen(false)}
+                running={batchFixRunning}
+                progress={batchFixProgress}
+                onStart={handleStartBatchFix}
+                onStop={handleStopBatchFix}
+                targetName={
+                    selection.type === "mocktest"
+                        ? (selection.mockTest?.title || selection.title || "Mock Test")
+                        : (selection.selectedChapter?.name
+                            ? `${selection.selectedSubject?.name || ''} - ${selection.selectedChapter.name}`
+                            : selection.selectedSubject?.name || "Chapter")
+                }
+                totalQuestions={questions.length}
             />
         </Box>
     );

@@ -41,11 +41,12 @@ export default function MockTestListPage() {
     const { classId } = useParams();
     const navigate = useNavigate();
 
-    const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api/v1";
+    const API_BASE_URL = import.meta.env.VITE_API_URL || "/api/v1";
 
     const [allMockTests, setAllMockTests] = useState([]);
+    const [summary, setSummary] = useState({ total: 0, completed: 0 });
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState(0); // 0 = all, 1 = active, 2 = draft
+    const [activeTab, setActiveTab] = useState(0);
     const [searchQuery, setSearchQuery] = useState('');
     const [testToDelete, setTestToDelete] = useState(null);
     const [duplicatingId, setDuplicatingId] = useState(null);
@@ -56,7 +57,7 @@ export default function MockTestListPage() {
         setError('');
         try {
             const token = localStorage.getItem('token');
-            const res = await fetch(`${API_BASE_URL}/mocktest/class/${classId}`, {
+            const res = await fetch(`${API_BASE_URL}/tests/class/${classId}`, {
                 headers: {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
@@ -68,7 +69,8 @@ export default function MockTestListPage() {
             }
 
             const data = await res.json();
-            setAllMockTests(Array.isArray(data) ? data : []);
+            setAllMockTests(Array.isArray(data?.tests) ? data.tests : []);
+            setSummary(data?.summary || { total: 0, completed: 0 });
         } catch (error) {
             console.error("Failed to fetch mock tests:", error);
             setError('Failed to load mock tests. Please try again.');
@@ -85,7 +87,6 @@ export default function MockTestListPage() {
     const filteredMockTests = useMemo(() => {
         let filtered = allMockTests;
 
-        // Status Filter
         const tabMapping = ['all', 'active', 'draft'];
         const currentFilter = tabMapping[activeTab];
 
@@ -93,11 +94,10 @@ export default function MockTestListPage() {
             filtered = filtered.filter(test => test.status === currentFilter);
         }
 
-        // Search Filter
         if (searchQuery) {
             const lowerQuery = searchQuery.toLowerCase();
             filtered = filtered.filter(test =>
-                test.title.toLowerCase().includes(lowerQuery) ||
+                test.title?.toLowerCase().includes(lowerQuery) ||
                 test.description?.toLowerCase().includes(lowerQuery)
             );
         }
@@ -109,7 +109,7 @@ export default function MockTestListPage() {
         if (!testToDelete) return;
         try {
             const token = localStorage.getItem('token');
-            const res = await fetch(`${API_BASE_URL}/mocktest/${testToDelete._id}`, {
+            const res = await fetch(`${API_BASE_URL}/tests/${testToDelete._id}`, {
                 method: 'DELETE',
                 headers: {
                     'Authorization': `Bearer ${token}`,
@@ -133,7 +133,7 @@ export default function MockTestListPage() {
         setDuplicatingId(testId);
         try {
             const token = localStorage.getItem('token');
-            const res = await fetch(`${API_BASE_URL}/mocktest/${testId}/duplicate`, {
+            const res = await fetch(`${API_BASE_URL}/tests/${testId}/duplicate`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`,
@@ -165,7 +165,6 @@ export default function MockTestListPage() {
 
     return (
         <Box sx={{ maxWidth: 1400, mx: 'auto' }}>
-            {/* Header */}
             <Box sx={{
                 display: 'flex',
                 justifyContent: 'space-between',
@@ -181,7 +180,7 @@ export default function MockTestListPage() {
                     <Box>
                         <Typography variant="h4" fontWeight="bold">Mock Tests</Typography>
                         <Typography variant="body1" color="text.secondary">
-                            Manage assessments for Class {classId}
+                            Manage assessments for Class {classId} · {summary.total} total, {summary.completed} completed
                         </Typography>
                     </Box>
                 </Box>
@@ -200,14 +199,12 @@ export default function MockTestListPage() {
                 </Button>
             </Box>
 
-            {/* Error Alert */}
             {error && (
                 <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError('')}>
                     {error}
                 </Alert>
             )}
 
-            {/* Filters */}
             <Card variant="outlined" sx={{ mb: 3 }}>
                 <CardContent>
                     <Box sx={{
@@ -248,7 +245,6 @@ export default function MockTestListPage() {
                 </CardContent>
             </Card>
 
-            {/* Mock Tests Grid */}
             {loading ? (
                 <Box sx={{
                     display: 'grid',
@@ -300,11 +296,7 @@ export default function MockTestListPage() {
                                 overflow: 'hidden'
                             }}
                         >
-                            {/* Top colored bar */}
-                            <Box sx={{
-                                height: 4,
-                                background: '#673AB7'
-                            }} />
+                            <Box sx={{ height: 4, background: '#673AB7' }} />
 
                             <CardHeader
                                 title={
@@ -345,6 +337,15 @@ export default function MockTestListPage() {
                                                     variant="outlined"
                                                     size="small"
                                                     sx={{ fontSize: '0.7rem', fontWeight: 600 }}
+                                                />
+                                            )}
+                                            {test.attemptData?.state && test.attemptData.state !== 'notStarted' && (
+                                                <Chip
+                                                    label={test.attemptData.state}
+                                                    variant="outlined"
+                                                    size="small"
+                                                    color="info"
+                                                    sx={{ fontSize: '0.7rem', fontWeight: 600, textTransform: 'capitalize' }}
                                                 />
                                             )}
                                         </Box>
@@ -484,6 +485,14 @@ export default function MockTestListPage() {
                                 <Box sx={{ display: 'flex', gap: 0.5 }}>
                                     <IconButton
                                         size="small"
+                                        onClick={() => navigate(`/question-reviewer?mode=mocktest&testId=${test._id}&title=${encodeURIComponent(test.title || '')}`)}
+                                        title="Review Questions"
+                                        color="info"
+                                    >
+                                        <Assignment fontSize="small" />
+                                    </IconButton>
+                                    <IconButton
+                                        size="small"
                                         onClick={() => handleDuplicateMockTest(test._id)}
                                         disabled={duplicatingId === test._id}
                                         title="Duplicate"
@@ -555,7 +564,6 @@ export default function MockTestListPage() {
                 </Paper>
             )}
 
-            {/* Delete Dialog */}
             <Dialog
                 open={!!testToDelete}
                 onClose={() => setTestToDelete(null)}

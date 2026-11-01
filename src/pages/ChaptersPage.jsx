@@ -50,7 +50,7 @@ export default function ChaptersPage() {
     const [dialogState, setDialogState] = useState({ type: null, chapter: null });
     const [newChapterName, setNewChapterName] = useState('');
 
-    const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api/v1";
+    const API_BASE_URL = import.meta.env.VITE_API_URL || "/api/v1";
 
     const fetchChaptersAndSubject = useCallback(async () => {
         setLoading(true);
