@@ -21,6 +21,7 @@ import {
   Presentation,
   Radio,
   Users,
+  Zap,
 } from 'lucide-react';
 
 import Logo from '@/components/Logo';
@@ -71,6 +72,7 @@ const buildSections = (classId) => [
       { title: 'Students & credits', icon: Users, to: '/students', match: ['/students'] },
       { title: 'Workshop leads', icon: Presentation, to: '/workshops', match: ['/workshops'] },
       { title: 'Send notifications', icon: Bell, to: '/notifications', match: ['/notifications'] },
+      { title: 'Automatic nudges', icon: Zap, to: '/automatic-nudges', match: ['/automatic-nudges'] },
       { title: 'Scheduled jobs', icon: Clock, to: '/scheduled-jobs', match: ['/scheduled-jobs'] },
       { title: 'System health', icon: Activity, to: '/system-health', match: ['/system-health'] },
     ],

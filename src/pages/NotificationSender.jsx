@@ -1,5 +1,5 @@
-// src/pages/NotificationSender.jsx
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Alert,
   Box,
@@ -375,6 +375,24 @@ export default function NotificationSender() {
         </Box>
 
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+          <Button
+            component={Link}
+            to="/automatic-nudges"
+            variant="outlined"
+            startIcon={<Zap size={16} color={tokens.ink} />}
+            sx={{
+              minHeight: 44,
+              borderColor: tokens.rule,
+              color: tokens.text,
+              bgcolor: tokens.sheet,
+              textTransform: 'none',
+              fontWeight: 600,
+              fontSize: 13.5,
+              '&:hover': { borderColor: tokens.ink, bgcolor: tokens.inkTint },
+            }}
+          >
+            Automatic nudges
+          </Button>
           <Button
             variant="outlined"
             onClick={() => {
