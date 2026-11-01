@@ -55,7 +55,7 @@ export default function MockTestFormPage() {
     const navigate = useNavigate();
     const isEditing = !!testId;
 
-    const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api/v1";
+    const API_BASE_URL = import.meta.env.VITE_API_URL || "/api/v1";
 
     const [formState, setFormState] = useState(initialFormState);
     const [allSubjects, setAllSubjects] = useState([]);
@@ -80,7 +80,7 @@ export default function MockTestFormPage() {
                 };
 
                 if (isEditing) {
-                    const testRes = await fetch(`${API_BASE_URL}/mocktest/${testId}`, { headers });
+                    const testRes = await fetch(`${API_BASE_URL}/tests/${testId}`, { headers });
                     if (!testRes.ok) throw new Error('Mock test not found');
                     testData = await testRes.json();
                     effectiveClassId = testData.studentClass;
@@ -124,7 +124,7 @@ export default function MockTestFormPage() {
         const fetchQuestionsForSubjects = async () => {
             try {
                 const token = localStorage.getItem('token');
-                const res = await fetch(`${API_BASE_URL}/mocktest/questions-for-subjects`, {
+                const res = await fetch(`${API_BASE_URL}/tests/questions-for-subjects`, {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${token}`,
@@ -138,7 +138,7 @@ export default function MockTestFormPage() {
 
                 const classId = allSubjects.find(s => formState.subjects.includes(s._id))?.studentClass;
                 if (classId) {
-                    const mockTestsRes = await fetch(`${API_BASE_URL}/mocktest/class/${classId}`);
+                    const mockTestsRes = await fetch(`${API_BASE_URL}/tests/class/${classId}`);
                     const mockTests = await mockTestsRes.json();
 
                     const usedQuestionIds = new Set();
@@ -269,7 +269,7 @@ export default function MockTestFormPage() {
         const effectiveClassId = isEditing ? (allSubjects.length > 0 ? allSubjects[0].studentClass : null) : classId;
         if (!effectiveClassId) return alert("Could not determine the class for this test.");
 
-        const url = isEditing ? `${API_BASE_URL}/mocktest/${testId}` : `${API_BASE_URL}/mocktest`;
+        const url = isEditing ? `${API_BASE_URL}/tests/${testId}` : `${API_BASE_URL}/tests`;
         const method = isEditing ? 'PATCH' : 'POST';
         const body = { ...formState, studentClass: effectiveClassId, totalMarks: calculateTotalSelectedMarks };
 

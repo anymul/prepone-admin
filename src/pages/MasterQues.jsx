@@ -943,7 +943,7 @@ function TabPanel({ children, value, index }) {
 
 export default function MasterQuestionUploader() {
   const navigate = useNavigate();
-  const API_BASE_URL = "http://localhost:3000/api/v1/utility";
+  const API_BASE_URL = `${import.meta.env.VITE_API_URL || "/api/v1"}/utility`;
   const SUBJECT_API_URL = `${API_BASE_URL}/subject`;
   const QUESTION_API_URL = `${API_BASE_URL}/question`;
 

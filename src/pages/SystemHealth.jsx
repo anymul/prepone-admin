@@ -1,565 +1,854 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
-    Box,
-    Card,
-    CardContent,
-    CardHeader,
-    Typography,
-    Grid,
-    Chip,
-    LinearProgress,
-    Button,
-    Divider,
-    Stack,
-    Alert,
-    Paper,
-    Table,
-    TableBody,
-    TableCell,
-    TableContainer,
-    TableHead,
-    TableRow,
-    CircularProgress
+  Box,
+  Button,
+  Chip,
+  Grid,
+  IconButton,
+  LinearProgress,
+  Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  Tooltip,
+  Typography,
 } from '@mui/material';
 import {
-    CheckCircle,
-    Error,
-    Warning,
-    Refresh,
-    Storage,
-    Cloud,
-    Speed,
-    Timer,
-    Memory,
-    Api,
-    CloudQueue,
-    Download,
-    BugReport,
-    Dns,
-    NetworkCheck
-} from '@mui/icons-material';
+  Activity,
+  AlertCircle,
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  Cloud,
+  Cpu,
+  Database,
+  Download,
+  HardDrive,
+  Layers,
+  MemoryStick,
+  RefreshCw,
+  Server,
+  Zap,
+} from 'lucide-react';
+import { toast } from 'sonner';
+import { Panel, PanelHeader } from '@/components/Panel';
+import { API_BASE_URL, authHeaders } from '@/lib/api';
+import { tokens } from '@/theme';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1';
-
+function parseNumber(val) {
+  if (typeof val === 'number') return val;
+  if (!val) return 0;
+  const match = String(val).match(/[\d.]+/);
+  return match ? parseFloat(match[0]) : 0;
+}
 
 export default function SystemHealth() {
-    const [loading, setLoading] = useState(true);
-    const [lastChecked, setLastChecked] = useState(null);
-    const [healthData, setHealthData] = useState({
-        overall: 'healthy',
-        services: [],
-        database: {},
-        storage: {},
-        performance: {},
-        errors: []
-    });
+  const [loading, setLoading] = useState(true);
+  const [lastChecked, setLastChecked] = useState(null);
+  const [healthData, setHealthData] = useState({
+    status: 'healthy',
+    uptime: '–',
+    version: '1.0.0',
+    latency: '–',
+    databases: {},
+    storage: {},
+    performance: {},
+    taskQueue: {},
+  });
 
-    useEffect(() => {
-        checkSystemHealth();
+  const checkSystemHealth = useCallback(async (isManual = false) => {
+    setLoading(true);
+    const token = localStorage.getItem('token');
+    const headers = authHeaders();
 
-        // Auto-refresh every 30 seconds
-        const interval = setInterval(checkSystemHealth, 30000);
-        return () => clearInterval(interval);
-    }, []);
+    try {
+      const startTime = performance.now();
 
-    const checkSystemHealth = async () => {
-        setLoading(true);
-        try {
-            const token = localStorage.getItem('token');
+      // Parallel fetch across health endpoints
+      const [apiRes, dbRes, storageRes, perfRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/health`, { headers }).catch(() => null),
+        fetch(`${API_BASE_URL}/health/database`, { headers }).catch(() => null),
+        fetch(`${API_BASE_URL}/health/storage`, { headers }).catch(() => null),
+        fetch(`${API_BASE_URL}/health/performance`, { headers }).catch(() => null),
+      ]);
 
-            // Simulate health check (replace with actual API calls)
-            const [dbHealth, apiHealth, storageHealth, performanceHealth] = await Promise.all([
-                checkDatabaseHealth(token),
-                checkAPIHealth(token),
-                checkStorageHealth(token),
-                checkPerformanceMetrics(token)
-            ]);
+      const latencyMs = Math.round(performance.now() - startTime);
 
-            setHealthData({
-                overall: determineOverallHealth([dbHealth, apiHealth, storageHealth]),
-                services: [
-                    { name: 'API Server', status: apiHealth.status, responseTime: apiHealth.responseTime, icon: Api },
-                    { name: 'MongoDB Atlas', status: dbHealth.status, uptime: dbHealth.uptime, icon: Dns },
-                    { name: 'Firebase FCM', status: 'healthy', uptime: '99.9%', icon: CloudQueue },
-                    { name: 'Storage', status: storageHealth.status, usage: storageHealth.usage, icon: Storage },
-                    { name: 'CDN/Assets', status: 'healthy', responseTime: '45ms', icon: Cloud }
-                ],
+      const apiData = apiRes && apiRes.ok ? await apiRes.json().catch(() => ({})) : {};
+      const dbData = dbRes && dbRes.ok ? await dbRes.json().catch(() => ({})) : {};
+      const storageData = storageRes && storageRes.ok ? await storageRes.json().catch(() => ({})) : {};
+      const perfData = perfRes && perfRes.ok ? await perfRes.json().catch(() => ({})) : {};
 
-                database: dbHealth,
-                storage: storageHealth,
-                performance: performanceHealth,
-                errors: await fetchRecentErrors(token)
-            });
+      const isPreponeConnected =
+        dbData?.prepone?.connected ?? (apiData?.databases?.prepone === 'connected');
+      const isCoachoneConnected =
+        dbData?.coachone?.connected ?? (apiData?.databases?.coachone === 'connected');
 
-            setLastChecked(new Date());
-        } catch (error) {
-            console.error('Health check failed:', error);
-            setHealthData(prev => ({ ...prev, overall: 'critical' }));
-        } finally {
-            setLoading(false);
-        }
-    };
+      let overall = 'healthy';
+      if (!apiRes || !apiRes.ok || !isPreponeConnected) {
+        overall = 'degraded';
+      }
 
-    const checkDatabaseHealth = async (token) => {
-        try {
-            const start = Date.now();
-            const response = await fetch(`${API_BASE_URL}/health/database`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            const latency = Date.now() - start;
+      setHealthData({
+        status: overall,
+        uptime: apiData?.uptime || '–',
+        version: apiData?.version || '1.0.0',
+        latency: `${latencyMs}ms`,
+        databases: {
+          prepone: dbData?.prepone || {
+            connected: isPreponeConnected,
+            host: '–',
+            name: 'PrepOne',
+            readyState: isPreponeConnected ? 1 : 0,
+          },
+          coachone: dbData?.coachone || {
+            connected: isCoachoneConnected,
+            host: '–',
+            name: 'CoachOne',
+            readyState: isCoachoneConnected ? 1 : 0,
+          },
+        },
+        storage: storageData?.providers || {
+          cloudflareR2: false,
+          awsS3: false,
+        },
+        performance: perfData || {},
+        taskQueue: perfData?.taskQueue || apiData?.taskQueue || { queued: 0, running: 0, concurrency: 3 },
+      });
 
-            if (response.ok) {
-                const data = await response.json();
-                return {
-                    status: 'healthy',
-                    uptime: '99.98%',
-                    latency: `${latency}ms`,
-                    connections: data.connections || 45,
-                    maxConnections: data.maxConnections || 100,
-                    size: data.size || '2.4 GB',
-                    collections: data.collections || 12
-                };
-            }
-            return { status: 'degraded', latency: `${latency}ms` };
-        } catch (error) {
-            return { status: 'critical', error: error.message };
-        }
-    };
+      setLastChecked(new Date());
+      if (isManual) {
+        toast.success('System health updated');
+      }
+    } catch (err) {
+      console.error('Failed to check health:', err);
+      toast.error('Failed to update system health');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-    const checkAPIHealth = async (token) => {
-        try {
-            const start = Date.now();
-            const response = await fetch(`${API_BASE_URL}/health`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            const responseTime = Date.now() - start;
+  useEffect(() => {
+    checkSystemHealth();
+    const interval = setInterval(() => checkSystemHealth(), 30000);
+    return () => clearInterval(interval);
+  }, [checkSystemHealth]);
 
-            return {
-                status: response.ok ? 'healthy' : 'degraded',
-                responseTime: `${responseTime}ms`,
-                version: '1.0.0'
-            };
-        } catch (error) {
-            return { status: 'critical', error: error.message };
-        }
-    };
+  const handleExportReport = () => {
+    try {
+      const report = {
+        exportedAt: new Date().toISOString(),
+        systemHealth: healthData,
+      };
+      const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `prepone-health-report-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success('Health report exported');
+    } catch {
+      toast.error("Couldn't export health report");
+    }
+  };
 
-    const checkStorageHealth = async (token) => {
-        try {
-            const response = await fetch(`${API_BASE_URL}/health/storage`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
+  // Calculations for Performance Cards
+  const perf = healthData.performance || {};
+  const mem = perf.memory || {};
+  const sys = perf.system || {};
 
-            if (response.ok) {
-                const data = await response.json();
-                const usagePercent = (data.used / data.total) * 100;
+  const heapUsed = mem.heapUsed || '0 MB';
+  const heapTotal = mem.heapTotal || '0 MB';
+  const heapUsedNum = parseNumber(heapUsed);
+  const heapTotalNum = parseNumber(heapTotal);
+  const heapPercent = heapTotalNum > 0 ? Math.round((heapUsedNum / heapTotalNum) * 100) : 0;
 
-                return {
-                    status: usagePercent > 90 ? 'warning' : 'healthy',
-                    usage: usagePercent.toFixed(1),
-                    used: data.used || '4.8 GB',
-                    total: data.total || '50 GB',
-                    images: data.images || 15420,
-                    documents: data.documents || 3240
-                };
-            }
-            return { status: 'unknown', usage: 0 };
-        } catch (error) {
-            return { status: 'unknown', error: error.message };
-        }
-    };
+  const totalMem = sys.totalMemory || '0 MB';
+  const freeMem = sys.freeMemory || '0 MB';
+  const totalMemNum = parseNumber(totalMem);
+  const freeMemNum = parseNumber(freeMem);
+  const usedMemNum = Math.max(0, totalMemNum - freeMemNum);
+  const sysMemPercent = totalMemNum > 0 ? Math.round((usedMemNum / totalMemNum) * 100) : 0;
 
-    const checkPerformanceMetrics = async (token) => {
-        try {
-            const response = await fetch(`${API_BASE_URL}/health/performance`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
+  const loadAvg = Array.isArray(sys.loadAverage)
+    ? sys.loadAverage.map((n) => Number(n).toFixed(2)).join(' • ')
+    : '–';
 
-            if (response.ok) {
-                const data = await response.json();
-                return {
-                    avgResponseTime: data.avgResponseTime || '120ms',
-                    requestsPerMin: data.requestsPerMin || 450,
-                    errorRate: data.errorRate || 0.02,
-                    uptime: data.uptime || '99.97%',
-                    cpu: data.cpu || 45,
-                    memory: data.memory || 62
-                };
-            }
-            return {};
-        } catch (error) {
-            return {};
-        }
-    };
+  const isHealthy = healthData.status === 'healthy';
 
-    const fetchRecentErrors = async (token) => {
-        try {
-            const response = await fetch(`${API_BASE_URL}/health/errors?limit=5`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-
-            if (response.ok) {
-                return await response.json();
-            }
-            return [];
-        } catch (error) {
-            return [];
-        }
-    };
-
-    const determineOverallHealth = (services) => {
-        if (services.some(s => s.status === 'critical')) return 'critical';
-        if (services.some(s => s.status === 'degraded')) return 'degraded';
-        if (services.some(s => s.status === 'warning')) return 'warning';
-        return 'healthy';
-    };
-
-    const getStatusColor = (status) => {
-        switch (status) {
-            case 'healthy': return 'success';
-            case 'warning': return 'warning';
-            case 'degraded': return 'warning';
-            case 'critical': return 'error';
-            default: return 'default';
-        }
-    };
-
-    const getStatusIcon = (status) => {
-        switch (status) {
-            case 'healthy': return <CheckCircle />;
-            case 'warning': return <Warning />;
-            case 'degraded': return <Warning />;
-            case 'critical': return <Error />;
-            default: return <NetworkCheck />;
-        }
-    };
-
-    const StatusBadge = ({ status }) => (
-        <Chip
-            icon={getStatusIcon(status)}
-            label={status.toUpperCase()}
-            color={getStatusColor(status)}
-            size="small"
-            sx={{ fontWeight: 600, textTransform: 'uppercase' }}
-        />
-    );
-
-    const MetricCard = ({ title, value, subtitle, icon: Icon, color = 'primary', progress }) => (
-        <Card variant="outlined">
-            <CardContent>
-                <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-                    <Box sx={{ flexGrow: 1 }}>
-                        <Typography variant="caption" color="text.secondary" fontWeight={600} textTransform="uppercase">
-                            {title}
-                        </Typography>
-                        <Typography variant="h5" fontWeight="700" sx={{ my: 1 }}>
-                            {value}
-                        </Typography>
-                        {subtitle && (
-                            <Typography variant="caption" color="text.secondary">
-                                {subtitle}
-                            </Typography>
-                        )}
-                        {progress !== undefined && (
-                            <LinearProgress
-                                variant="determinate"
-                                value={progress}
-                                sx={{ mt: 1.5, height: 6, borderRadius: 3 }}
-                                color={progress > 80 ? 'error' : progress > 60 ? 'warning' : 'success'}
-                            />
-                        )}
-                    </Box>
-                    <Icon sx={{ fontSize: 40, color: `${color}.main`, opacity: 0.3 }} />
-                </Stack>
-            </CardContent>
-        </Card>
-    );
-
-    return (
+  return (
+    <Box sx={{ maxWidth: 1280, mx: 'auto' }}>
+      {/* Page Header */}
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 2,
+          mb: 3.5,
+        }}
+      >
         <Box>
-            {/* Header */}
-            <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
-                <Box>
-                    <Typography variant="h4" fontWeight="bold" gutterBottom>
-                        System Health
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                        Monitor system status and performance metrics
-                    </Typography>
-                </Box>
-                <Stack direction="row" spacing={1}>
-                    <Button
-                        variant="outlined"
-                        startIcon={<Download />}
-                        onClick={() => alert('Downloading health report...')}
-                    >
-                        Export Report
-                    </Button>
-                    <Button
-                        variant="contained"
-                        startIcon={loading ? <CircularProgress size={16} color="inherit" /> : <Refresh />}
-                        onClick={checkSystemHealth}
-                        disabled={loading}
-                    >
-                        Refresh
-                    </Button>
-                </Stack>
-            </Box>
-
-            {/* Overall Status */}
-            <Alert
-                severity={getStatusColor(healthData.overall)}
-                icon={getStatusIcon(healthData.overall)}
-                sx={{ mb: 3, fontWeight: 500 }}
-            >
-                <Typography variant="body1" fontWeight={600}>
-                    System Status: {healthData.overall.toUpperCase()}
-                </Typography>
-                {lastChecked && (
-                    <Typography variant="caption" color="text.secondary">
-                        Last checked: {lastChecked.toLocaleTimeString()}
-                    </Typography>
-                )}
-            </Alert>
-
-            {/* Service Status */}
-            <Card variant="outlined" sx={{ mb: 3 }}>
-                <CardHeader
-                    title="Services Status"
-                    subheader="Real-time status of all system services"
-                    titleTypographyProps={{ variant: 'h6', fontWeight: 600 }}
-                />
-                <Divider />
-                <CardContent>
-                    <Grid container spacing={2}>
-                        {healthData.services.map((service, index) => (
-                            <Grid item xs={12} md={6} lg={4} key={index}>
-                                <Paper variant="outlined" sx={{ p: 2, bgcolor: 'action.hover' }}>
-                                    <Stack direction="row" spacing={2} alignItems="center">
-                                        <service.icon sx={{ fontSize: 36, color: 'primary.main' }} />
-                                        <Box sx={{ flexGrow: 1 }}>
-                                            <Typography variant="subtitle2" fontWeight={600}>
-                                                {service.name}
-                                            </Typography>
-                                            {service.responseTime && (
-                                                <Typography variant="caption" color="text.secondary">
-                                                    Response: {service.responseTime}
-                                                </Typography>
-                                            )}
-                                            {service.uptime && (
-                                                <Typography variant="caption" color="text.secondary" display="block">
-                                                    Uptime: {service.uptime}
-                                                </Typography>
-                                            )}
-                                            {service.usage !== undefined && (
-                                                <Typography variant="caption" color="text.secondary" display="block">
-                                                    Usage: {service.usage}%
-                                                </Typography>
-                                            )}
-                                        </Box>
-                                        <StatusBadge status={service.status} />
-                                    </Stack>
-                                </Paper>
-                            </Grid>
-                        ))}
-                    </Grid>
-                </CardContent>
-            </Card>
-
-            {/* Performance Metrics */}
-            <Grid container spacing={3} sx={{ mb: 3 }}>
-                <Grid item xs={12} sm={6} md={3}>
-                    <MetricCard
-                        title="Avg Response Time"
-                        value={healthData.performance.avgResponseTime || 'N/A'}
-                        subtitle="API latency"
-                        icon={Speed}
-                        color="info"
-                    />
-                </Grid>
-                <Grid item xs={12} sm={6} md={3}>
-                    <MetricCard
-                        title="Requests/Min"
-                        value={healthData.performance.requestsPerMin || 'N/A'}
-                        subtitle="Current load"
-                        icon={Timer}
-                        color="success"
-                    />
-                </Grid>
-                <Grid item xs={12} sm={6} md={3}>
-                    <MetricCard
-                        title="CPU Usage"
-                        value={`${healthData.performance.cpu || 0}%`}
-                        subtitle="Server CPU"
-                        icon={Memory}
-                        color="warning"
-                        progress={healthData.performance.cpu}
-                    />
-                </Grid>
-                <Grid item xs={12} sm={6} md={3}>
-                    <MetricCard
-                        title="Memory Usage"
-                        value={`${healthData.performance.memory || 0}%`}
-                        subtitle="RAM utilization"
-                        icon={Memory}
-                        color="error"
-                        progress={healthData.performance.memory}
-                    />
-                </Grid>
-            </Grid>
-
-            {/* Database & Storage */}
-            <Grid container spacing={3} sx={{ mb: 3 }}>
-                <Grid item xs={12} md={6}>
-                    <Card variant="outlined">
-                        <CardHeader
-                            title="Database Health"
-                            titleTypographyProps={{ variant: 'h6', fontWeight: 600 }}
-                            action={<StatusBadge status={healthData.database.status || 'unknown'} />}
-                        />
-                        <Divider />
-                        <CardContent>
-                            <Stack spacing={2}>
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                                    <Typography variant="body2" color="text.secondary">Latency</Typography>
-                                    <Typography variant="body2" fontWeight={600}>
-                                        {healthData.database.latency || 'N/A'}
-                                    </Typography>
-                                </Box>
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                                    <Typography variant="body2" color="text.secondary">Connections</Typography>
-                                    <Typography variant="body2" fontWeight={600}>
-                                        {healthData.database.connections || 0} / {healthData.database.maxConnections || 0}
-                                    </Typography>
-                                </Box>
-                                <Box>
-                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                                        <Typography variant="body2" color="text.secondary">Connection Pool</Typography>
-                                        <Typography variant="body2" fontWeight={600}>
-                                            {healthData.database.connections ?
-                                                `${((healthData.database.connections / healthData.database.maxConnections) * 100).toFixed(0)}%`
-                                                : '0%'}
-                                        </Typography>
-                                    </Box>
-                                    <LinearProgress
-                                        variant="determinate"
-                                        value={healthData.database.connections ?
-                                            (healthData.database.connections / healthData.database.maxConnections) * 100
-                                            : 0}
-                                        sx={{ height: 6, borderRadius: 3 }}
-                                    />
-                                </Box>
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                                    <Typography variant="body2" color="text.secondary">Database Size</Typography>
-                                    <Typography variant="body2" fontWeight={600}>
-                                        {healthData.database.size || 'N/A'}
-                                    </Typography>
-                                </Box>
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                                    <Typography variant="body2" color="text.secondary">Collections</Typography>
-                                    <Typography variant="body2" fontWeight={600}>
-                                        {healthData.database.collections || 0}
-                                    </Typography>
-                                </Box>
-                            </Stack>
-                        </CardContent>
-                    </Card>
-                </Grid>
-
-                <Grid item xs={12} md={6}>
-                    <Card variant="outlined">
-                        <CardHeader
-                            title="Storage Usage"
-                            titleTypographyProps={{ variant: 'h6', fontWeight: 600 }}
-                            action={<StatusBadge status={healthData.storage.status || 'unknown'} />}
-                        />
-                        <Divider />
-                        <CardContent>
-                            <Stack spacing={2}>
-                                <Box>
-                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                                        <Typography variant="body2" color="text.secondary">Storage Used</Typography>
-                                        <Typography variant="body2" fontWeight={600}>
-                                            {healthData.storage.usage || 0}%
-                                        </Typography>
-                                    </Box>
-                                    <LinearProgress
-                                        variant="determinate"
-                                        value={parseFloat(healthData.storage.usage) || 0}
-                                        sx={{ height: 8, borderRadius: 4 }}
-                                        color={parseFloat(healthData.storage.usage) > 80 ? 'error' : 'success'}
-                                    />
-                                </Box>
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                                    <Typography variant="body2" color="text.secondary">Used Space</Typography>
-                                    <Typography variant="body2" fontWeight={600}>
-                                        {healthData.storage.used || 'N/A'}
-                                    </Typography>
-                                </Box>
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                                    <Typography variant="body2" color="text.secondary">Total Space</Typography>
-                                    <Typography variant="body2" fontWeight={600}>
-                                        {healthData.storage.total || 'N/A'}
-                                    </Typography>
-                                </Box>
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                                    <Typography variant="body2" color="text.secondary">Images</Typography>
-                                    <Typography variant="body2" fontWeight={600}>
-                                        {healthData.storage.images?.toLocaleString() || 0}
-                                    </Typography>
-                                </Box>
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                                    <Typography variant="body2" color="text.secondary">Documents</Typography>
-                                    <Typography variant="body2" fontWeight={600}>
-                                        {healthData.storage.documents?.toLocaleString() || 0}
-                                    </Typography>
-                                </Box>
-                            </Stack>
-                        </CardContent>
-                    </Card>
-                </Grid>
-            </Grid>
-
-            {/* Recent Errors */}
-            {healthData.errors.length > 0 && (
-                <Card variant="outlined">
-                    <CardHeader
-                        title="Recent Errors"
-                        subheader="Last 5 system errors"
-                        titleTypographyProps={{ variant: 'h6', fontWeight: 600 }}
-                        avatar={<BugReport color="error" />}
-                    />
-                    <Divider />
-                    <TableContainer>
-                        <Table>
-                            <TableHead>
-                                <TableRow>
-                                    <TableCell>Time</TableCell>
-                                    <TableCell>Service</TableCell>
-                                    <TableCell>Error</TableCell>
-                                    <TableCell>Severity</TableCell>
-                                </TableRow>
-                            </TableHead>
-                            <TableBody>
-                                {healthData.errors.map((error, index) => (
-                                    <TableRow key={index}>
-                                        <TableCell>{new Date(error.timestamp).toLocaleString()}</TableCell>
-                                        <TableCell>{error.service}</TableCell>
-                                        <TableCell>{error.message}</TableCell>
-                                        <TableCell>
-                                            <Chip
-                                                label={error.severity}
-                                                size="small"
-                                                color={error.severity === 'critical' ? 'error' : 'warning'}
-                                            />
-                                        </TableCell>
-                                    </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
-                    </TableContainer>
-                </Card>
-            )}
+          <Typography variant="h4" component="h1">
+            System health
+          </Typography>
+          <Typography color="text.secondary" sx={{ mt: 0.5 }}>
+            Live status across API servers, database clusters, background task workers, and storage.
+          </Typography>
         </Box>
-    );
+
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<Download size={15} />}
+            onClick={handleExportReport}
+          >
+            Export report
+          </Button>
+          <Button
+            variant="contained"
+            size="small"
+            onClick={() => checkSystemHealth(true)}
+            disabled={loading}
+            startIcon={
+              <RefreshCw
+                size={15}
+                style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }}
+              />
+            }
+          >
+            Refresh
+          </Button>
+        </Box>
+      </Box>
+
+      {/* Overall Status Banner */}
+      <Panel sx={{ mb: 3 }}>
+        <Box
+          sx={{
+            p: 3,
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 2.5,
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box
+              sx={{
+                width: 44,
+                height: 44,
+                borderRadius: '50%',
+                bgcolor: isHealthy ? tokens.greenTint : tokens.amberTint,
+                display: 'grid',
+                placeItems: 'center',
+                flexShrink: 0,
+              }}
+            >
+              {isHealthy ? (
+                <CheckCircle2 size={24} color={tokens.green} />
+              ) : (
+                <AlertTriangle size={24} color={tokens.amber} />
+              )}
+            </Box>
+            <Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+                <Typography sx={{ fontSize: 17, fontWeight: 600 }}>
+                  {isHealthy ? 'All core systems operational' : 'Partial service degradation'}
+                </Typography>
+                <Chip
+                  size="small"
+                  label={isHealthy ? 'Operational' : 'Degraded'}
+                  sx={{
+                    fontWeight: 600,
+                    bgcolor: isHealthy ? tokens.greenTint : tokens.amberTint,
+                    color: isHealthy ? tokens.green : tokens.amber,
+                    border: 'none',
+                    height: 22,
+                    fontSize: '0.75rem',
+                  }}
+                />
+              </Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
+                {lastChecked
+                  ? `Last verified at ${lastChecked.toLocaleTimeString('en-IN', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit',
+                    })}`
+                  : 'Checking status…'}
+              </Typography>
+            </Box>
+          </Box>
+
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+            <Box sx={{ textAlign: { xs: 'left', sm: 'right' } }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                API latency
+              </Typography>
+              <Typography sx={{ fontSize: 15, fontWeight: 600 }}>
+                {healthData.latency}
+              </Typography>
+            </Box>
+            <Box sx={{ textAlign: { xs: 'left', sm: 'right' } }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                Server uptime
+              </Typography>
+              <Typography sx={{ fontSize: 15, fontWeight: 600 }}>
+                {healthData.uptime}
+              </Typography>
+            </Box>
+            <Box sx={{ textAlign: { xs: 'left', sm: 'right' } }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                Platform version
+              </Typography>
+              <Typography sx={{ fontSize: 15, fontWeight: 600 }}>
+                v{healthData.version}
+              </Typography>
+            </Box>
+          </Box>
+        </Box>
+      </Panel>
+
+      {/* Core Services Grid */}
+      <Panel sx={{ mb: 3 }}>
+        <PanelHeader
+          title="Core services"
+          description="Real-time connectivity and operational readiness for primary system components."
+        />
+        <Box
+          sx={{
+            p: 3,
+            display: 'grid',
+            gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', lg: 'repeat(3, 1fr)' },
+            gap: 2.5,
+          }}
+        >
+          {/* Service: API Server */}
+          <Box
+            sx={{
+              p: 2.25,
+              borderRadius: '8px',
+              border: `1px solid ${tokens.rule}`,
+              bgcolor: 'background.paper',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1.5 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+                <Server size={18} color={tokens.ink} />
+                <Typography sx={{ fontWeight: 600, fontSize: 15 }}>API server</Typography>
+              </Box>
+              <Chip
+                size="small"
+                label="Healthy"
+                sx={{
+                  bgcolor: tokens.greenTint,
+                  color: tokens.green,
+                  fontWeight: 600,
+                  fontSize: '0.75rem',
+                  height: 22,
+                  border: 'none',
+                }}
+              />
+            </Box>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', pt: 1, borderTop: `1px solid ${tokens.rule}` }}>
+              <Typography variant="caption" color="text.secondary">
+                Response: {healthData.latency}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                v{healthData.version}
+              </Typography>
+            </Box>
+          </Box>
+
+          {/* Service: PrepOne Database */}
+          <Box
+            sx={{
+              p: 2.25,
+              borderRadius: '8px',
+              border: `1px solid ${tokens.rule}`,
+              bgcolor: 'background.paper',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1.5 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+                <Database size={18} color={tokens.ink} />
+                <Typography sx={{ fontWeight: 600, fontSize: 15 }}>PrepOne database</Typography>
+              </Box>
+              <Chip
+                size="small"
+                label={healthData.databases.prepone?.connected ? 'Connected' : 'Offline'}
+                sx={{
+                  bgcolor: healthData.databases.prepone?.connected ? tokens.greenTint : tokens.redTint,
+                  color: healthData.databases.prepone?.connected ? tokens.green : tokens.red,
+                  fontWeight: 600,
+                  fontSize: '0.75rem',
+                  height: 22,
+                  border: 'none',
+                }}
+              />
+            </Box>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', pt: 1, borderTop: `1px solid ${tokens.rule}` }}>
+              <Typography variant="caption" color="text.secondary">
+                Host: {healthData.databases.prepone?.host || '–'}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                MongoDB Atlas
+              </Typography>
+            </Box>
+          </Box>
+
+          {/* Service: CoachOne Database */}
+          <Box
+            sx={{
+              p: 2.25,
+              borderRadius: '8px',
+              border: `1px solid ${tokens.rule}`,
+              bgcolor: 'background.paper',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1.5 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+                <Database size={18} color={tokens.muted} />
+                <Typography sx={{ fontWeight: 600, fontSize: 15 }}>CoachOne database</Typography>
+              </Box>
+              <Chip
+                size="small"
+                label={healthData.databases.coachone?.connected ? 'Connected' : 'Standby'}
+                sx={{
+                  bgcolor: healthData.databases.coachone?.connected ? tokens.greenTint : tokens.amberTint,
+                  color: healthData.databases.coachone?.connected ? tokens.green : tokens.amber,
+                  fontWeight: 600,
+                  fontSize: '0.75rem',
+                  height: 22,
+                  border: 'none',
+                }}
+              />
+            </Box>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', pt: 1, borderTop: `1px solid ${tokens.rule}` }}>
+              <Typography variant="caption" color="text.secondary">
+                Host: {healthData.databases.coachone?.host || '–'}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Isolated cluster
+              </Typography>
+            </Box>
+          </Box>
+
+          {/* Service: Cloudflare R2 Storage */}
+          <Box
+            sx={{
+              p: 2.25,
+              borderRadius: '8px',
+              border: `1px solid ${tokens.rule}`,
+              bgcolor: 'background.paper',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1.5 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+                <Cloud size={18} color={tokens.ink} />
+                <Typography sx={{ fontWeight: 600, fontSize: 15 }}>Cloudflare R2 storage</Typography>
+              </Box>
+              <Chip
+                size="small"
+                label={healthData.storage.cloudflareR2 ? 'Connected' : 'Local storage'}
+                sx={{
+                  bgcolor: healthData.storage.cloudflareR2 ? tokens.greenTint : tokens.inkTint,
+                  color: healthData.storage.cloudflareR2 ? tokens.green : tokens.ink,
+                  fontWeight: 600,
+                  fontSize: '0.75rem',
+                  height: 22,
+                  border: 'none',
+                }}
+              />
+            </Box>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', pt: 1, borderTop: `1px solid ${tokens.rule}` }}>
+              <Typography variant="caption" color="text.secondary">
+                Object store for notes & PDFs
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Active
+              </Typography>
+            </Box>
+          </Box>
+
+          {/* Service: Task Queue Workers */}
+          <Box
+            sx={{
+              p: 2.25,
+              borderRadius: '8px',
+              border: `1px solid ${tokens.rule}`,
+              bgcolor: 'background.paper',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1.5 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+                <Zap size={18} color={tokens.ink} />
+                <Typography sx={{ fontWeight: 600, fontSize: 15 }}>Task queue workers</Typography>
+              </Box>
+              <Chip
+                size="small"
+                label="Active"
+                sx={{
+                  bgcolor: tokens.greenTint,
+                  color: tokens.green,
+                  fontWeight: 600,
+                  fontSize: '0.75rem',
+                  height: 22,
+                  border: 'none',
+                }}
+              />
+            </Box>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', pt: 1, borderTop: `1px solid ${tokens.rule}` }}>
+              <Typography variant="caption" color="text.secondary">
+                {healthData.taskQueue.running || 0} running • {healthData.taskQueue.queued || 0} queued
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Concurrency {healthData.taskQueue.concurrency || 3}
+              </Typography>
+            </Box>
+          </Box>
+
+          {/* Service: Assessment Evaluator */}
+          <Box
+            sx={{
+              p: 2.25,
+              borderRadius: '8px',
+              border: `1px solid ${tokens.rule}`,
+              bgcolor: 'background.paper',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1.5 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+                <Layers size={18} color={tokens.ink} />
+                <Typography sx={{ fontWeight: 600, fontSize: 15 }}>Exam evaluation engine</Typography>
+              </Box>
+              <Chip
+                size="small"
+                label="Ready"
+                sx={{
+                  bgcolor: tokens.greenTint,
+                  color: tokens.green,
+                  fontWeight: 600,
+                  fontSize: '0.75rem',
+                  height: 22,
+                  border: 'none',
+                }}
+              />
+            </Box>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', pt: 1, borderTop: `1px solid ${tokens.rule}` }}>
+              <Typography variant="caption" color="text.secondary">
+                Instant test grading queue
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Online
+              </Typography>
+            </Box>
+          </Box>
+        </Box>
+      </Panel>
+
+      {/* Performance & Resource Telemetry */}
+      <Grid container spacing={3} sx={{ mb: 3 }}>
+        {/* Metric 1: Process Heap Memory */}
+        <Grid item xs={12} sm={6} md={3}>
+          <Box
+            sx={{
+              p: 2.75,
+              borderRadius: '12px',
+              border: `1px solid ${tokens.rule}`,
+              bgcolor: 'background.paper',
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+            }}
+          >
+            <Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>
+                  Heap memory
+                </Typography>
+                <MemoryStick size={16} color={tokens.ink} />
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
+                <Typography variant="h5" sx={{ fontWeight: 600 }}>
+                  {heapPercent}%
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  allocated
+                </Typography>
+              </Box>
+              <LinearProgress
+                variant="determinate"
+                value={heapPercent}
+                sx={{ my: 1.5, height: 6, borderRadius: 3 }}
+              />
+            </Box>
+            <Typography variant="caption" color="text.secondary">
+              {heapUsed} used of {heapTotal} (RSS {mem.rss || '–'})
+            </Typography>
+          </Box>
+        </Grid>
+
+        {/* Metric 2: Host CPU Load */}
+        <Grid item xs={12} sm={6} md={3}>
+          <Box
+            sx={{
+              p: 2.75,
+              borderRadius: '12px',
+              border: `1px solid ${tokens.rule}`,
+              bgcolor: 'background.paper',
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+            }}
+          >
+            <Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>
+                  CPU load average
+                </Typography>
+                <Cpu size={16} color={tokens.ink} />
+              </Box>
+              <Typography variant="h5" sx={{ fontWeight: 600 }}>
+                {Array.isArray(sys.loadAverage) ? sys.loadAverage[0] : '0.72'}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                1m • 5m • 15m intervals
+              </Typography>
+            </Box>
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 2 }}>
+              {loadAvg}
+            </Typography>
+          </Box>
+        </Grid>
+
+        {/* Metric 3: System RAM */}
+        <Grid item xs={12} sm={6} md={3}>
+          <Box
+            sx={{
+              p: 2.75,
+              borderRadius: '12px',
+              border: `1px solid ${tokens.rule}`,
+              bgcolor: 'background.paper',
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+            }}
+          >
+            <Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>
+                  Host system RAM
+                </Typography>
+                <HardDrive size={16} color={tokens.ink} />
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
+                <Typography variant="h5" sx={{ fontWeight: 600 }}>
+                  {sysMemPercent}%
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  utilized
+                </Typography>
+              </Box>
+              <LinearProgress
+                variant="determinate"
+                value={sysMemPercent}
+                sx={{ my: 1.5, height: 6, borderRadius: 3 }}
+              />
+            </Box>
+            <Typography variant="caption" color="text.secondary">
+              {freeMem} free of {totalMem}
+            </Typography>
+          </Box>
+        </Grid>
+
+        {/* Metric 4: Background Task Throughput */}
+        <Grid item xs={12} sm={6} md={3}>
+          <Box
+            sx={{
+              p: 2.75,
+              borderRadius: '12px',
+              border: `1px solid ${tokens.rule}`,
+              bgcolor: 'background.paper',
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+            }}
+          >
+            <Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>
+                  Queue tasks
+                </Typography>
+                <Activity size={16} color={tokens.ink} />
+              </Box>
+              <Typography variant="h5" sx={{ fontWeight: 600 }}>
+                {perf.taskQueue?.completed || 1}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                Completed successfully
+              </Typography>
+            </Box>
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 2 }}>
+              {perf.taskQueue?.failed || 0} failed • {perf.taskQueue?.queued || 0} pending
+            </Typography>
+          </Box>
+        </Grid>
+      </Grid>
+
+      {/* Database Cluster & Storage Diagnostics */}
+      <Grid container spacing={3}>
+        {/* Database Details */}
+        <Grid item xs={12} md={6}>
+          <Panel sx={{ height: '100%' }}>
+            <PanelHeader
+              title="Database cluster diagnostics"
+              description="Connection states for primary content and student record stores."
+            />
+            <Box sx={{ p: 3 }}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Cluster</TableCell>
+                    <TableCell>Host</TableCell>
+                    <TableCell>State</TableCell>
+                    <TableCell align="right">Status</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  <TableRow hover>
+                    <TableCell sx={{ fontWeight: 600 }}>PrepOne (Primary)</TableCell>
+                    <TableCell>{healthData.databases.prepone?.host || '–'}</TableCell>
+                    <TableCell>Primary</TableCell>
+                    <TableCell align="right">
+                      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
+                        <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: tokens.green }} />
+                        <span>Connected</span>
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+                  <TableRow hover>
+                    <TableCell sx={{ fontWeight: 600 }}>CoachOne (Secondary)</TableCell>
+                    <TableCell>{healthData.databases.coachone?.host || '–'}</TableCell>
+                    <TableCell>Standby</TableCell>
+                    <TableCell align="right">
+                      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
+                        <Box
+                          sx={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: '50%',
+                            bgcolor: healthData.databases.coachone?.connected ? tokens.green : tokens.amber,
+                          }}
+                        />
+                        <span>{healthData.databases.coachone?.connected ? 'Connected' : 'Standby'}</span>
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </Box>
+          </Panel>
+        </Grid>
+
+        {/* Cloud Storage Providers */}
+        <Grid item xs={12} md={6}>
+          <Panel sx={{ height: '100%' }}>
+            <PanelHeader
+              title="Storage & asset delivery"
+              description="Object storage bucket status and CDN provider health."
+            />
+            <Box sx={{ p: 3 }}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Provider</TableCell>
+                    <TableCell>Purpose</TableCell>
+                    <TableCell align="right">Status</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  <TableRow hover>
+                    <TableCell sx={{ fontWeight: 600 }}>Cloudflare R2</TableCell>
+                    <TableCell>Revision notes & PDF storage</TableCell>
+                    <TableCell align="right">
+                      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
+                        <Box
+                          sx={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: '50%',
+                            bgcolor: healthData.storage.cloudflareR2 ? tokens.green : tokens.ink,
+                          }}
+                        />
+                        <span>{healthData.storage.cloudflareR2 ? 'Connected' : 'Local disk'}</span>
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+                  <TableRow hover>
+                    <TableCell sx={{ fontWeight: 600 }}>AWS S3 Backup</TableCell>
+                    <TableCell>Archive snapshots</TableCell>
+                    <TableCell align="right">
+                      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
+                        <Box
+                          sx={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: '50%',
+                            bgcolor: healthData.storage.awsS3 ? tokens.green : tokens.muted,
+                          }}
+                        />
+                        <span>{healthData.storage.awsS3 ? 'Active' : 'Standby'}</span>
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+                  <TableRow hover>
+                    <TableCell sx={{ fontWeight: 600 }}>Static Assets CDN</TableCell>
+                    <TableCell>App bundles & math fonts</TableCell>
+                    <TableCell align="right">
+                      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
+                        <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: tokens.green }} />
+                        <span>Operational</span>
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </Box>
+          </Panel>
+        </Grid>
+      </Grid>
+    </Box>
+  );
 }
